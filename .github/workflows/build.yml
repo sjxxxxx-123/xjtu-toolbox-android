@@ -40,8 +40,15 @@ jobs:
           echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
       - name: Decode Keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE }}
         run: |
-          printf '%s' "${{ secrets.SIGNING_KEYSTORE }}" | tr -d '[:space:]' | base64 -d > ${{ runner.temp }}/release.jks
+          python3 -c "
+          import base64, os
+          data = base64.b64decode(os.environ['KEYSTORE_B64'])
+          open('${{ runner.temp }}/release.jks', 'wb').write(data)
+          print(f'Keystore decoded: {len(data)} bytes')
+          "
 
       - name: Build Release APK
         env:
