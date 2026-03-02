@@ -43,6 +43,14 @@
 # ── Compose ───────────────────────────
 -dontwarn androidx.compose.**
 
+# ── Miuix UI Library ──────────────────
+-keep class top.yukonga.miuix.** { *; }
+-dontwarn top.yukonga.miuix.**
+
+# ── AndroidX Navigation Event ─────────
+-keep class androidx.navigationevent.** { *; }
+-dontwarn androidx.navigationevent.**
+
 # ── AndroidX Security (EncryptedSharedPreferences) ──
 -keep class androidx.security.crypto.** { *; }
 

@@ -93,6 +93,33 @@ class EmptyRoomApi {
     }
 
     /**
+     * 查询多个教学楼的教室信息（合并结果）
+     */
+    fun getEmptyRoomsMulti(
+        campusName: String,
+        buildingNames: Set<String>,
+        date: String = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+    ): List<RoomInfo> {
+        if (buildingNames.isEmpty()) return emptyList()
+        val data = fetchDayData(date)
+        val campusData = data.getAsJsonObject(campusName)
+            ?: throw NoDataException("暂无 $campusName 的数据")
+        return buildingNames.flatMap { buildingName ->
+            val buildingData = campusData.getAsJsonObject(buildingName) ?: return@flatMap emptyList()
+            buildingData.entrySet()
+                .filter { (key, value) -> key != "null" && key.isNotBlank() && !value.isJsonNull }
+                .mapNotNull { (roomName, roomJson) ->
+                    try {
+                        val obj = roomJson.asJsonObject
+                        val status = obj.getAsJsonArray("status").map { it.asInt }
+                        val size = obj.get("size")?.let { if (it.isJsonNull) 0 else it.asInt } ?: 0
+                        RoomInfo(name = roomName, size = size, status = status)
+                    } catch (_: Exception) { null }
+                }
+        }.sortedBy { it.name }
+    }
+
+    /**
      * 查询指定校区、教学楼的教室信息
      * @param campusName 校区名称（如 "兴庆校区"）
      * @param buildingName 教学楼名称（如 "主楼A"）
@@ -137,6 +164,40 @@ class EmptyRoomApi {
             today.format(DateTimeFormatter.ISO_LOCAL_DATE),
             today.plusDays(1).format(DateTimeFormatter.ISO_LOCAL_DATE)
         )
+    }
+
+    /**
+     * 根据教室全名（如 "主楼A-301"）查找其座位数。
+     * 遍历所有校区→教学楼→教室，尝试匹配教室名。
+     * @return 座位数，如未找到或CDN无数据则返回 null
+     */
+    fun getRoomSeatCount(location: String): Int? {
+        if (location.isBlank()) return null
+        val date = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        val data = try { fetchDayData(date) } catch (_: Exception) { return null }
+
+        for ((_, campusJson) in data.entrySet()) {
+            val campusObj = try { campusJson.asJsonObject } catch (_: Exception) { continue }
+            for ((buildingName, buildingJson) in campusObj.entrySet()) {
+                val buildingObj = try { buildingJson.asJsonObject } catch (_: Exception) { continue }
+                // 尝试1: location 以 "教学楼-教室号" 形式，如 "主楼A-301" → buildingName="主楼A", room="301"
+                if (location.startsWith(buildingName)) {
+                    val roomPart = location.removePrefix(buildingName).trimStart('-', ' ', '/')
+                    if (roomPart.isNotBlank() && buildingObj.has(roomPart)) {
+                        val size = buildingObj.getAsJsonObject(roomPart).get("size")
+                            ?.let { if (it.isJsonNull) null else it.asInt }
+                        if (size != null && size > 0) return size
+                    }
+                }
+                // 尝试2: location 直接就是 room key
+                if (buildingObj.has(location)) {
+                    val size = buildingObj.getAsJsonObject(location).get("size")
+                        ?.let { if (it.isJsonNull) null else it.asInt }
+                    if (size != null && size > 0) return size
+                }
+            }
+        }
+        return null
     }
 }
 

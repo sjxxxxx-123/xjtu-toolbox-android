@@ -1,5 +1,24 @@
 package com.xjtu.toolbox.jwapp
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
@@ -14,7 +33,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,7 +50,6 @@ import kotlinx.coroutines.withContext
 /**
  * 培养进度追踪页面
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CurriculumScreen(
     jwxtLogin: JwxtLogin,
@@ -139,10 +156,13 @@ fun CurriculumScreen(
 
     LaunchedEffect(Unit) { loadData() }
 
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("培养进度") },
+                title = "培养进度",
+                largeTitle = "培养进度",
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -164,7 +184,7 @@ fun CurriculumScreen(
             progress != null -> {
                 val p = progress!!
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+                    modifier = Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection).overScrollVertical().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
@@ -182,8 +202,8 @@ fun CurriculumScreen(
                     item {
                         Text(
                             "⚠ 本页严格基于方案树课程号匹配，通识选修要求、模块学分认定等不在其内，毕业结论请以教务系统为准。",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             modifier = Modifier.padding(horizontal = 4.dp)
                         )
                     }
@@ -205,7 +225,7 @@ fun CurriculumScreen(
                             SectionHeader(
                                 title = "学分不足 (${p.insufficientGroups.size})",
                                 icon = Icons.Default.Warning,
-                                color = MaterialTheme.colorScheme.error,
+                                color = MiuixTheme.colorScheme.error,
                                 expanded = expandedSection == "insufficient",
                                 onToggle = { expandedSection = if (expandedSection == "insufficient") null else "insufficient" }
                             )
@@ -223,7 +243,7 @@ fun CurriculumScreen(
                             SectionHeader(
                                 title = "方案外课程 (${p.outOfPlanCourses.size})",
                                 icon = Icons.Default.CallMissedOutgoing,
-                                color = MaterialTheme.colorScheme.tertiary,
+                                color = MiuixTheme.colorScheme.primaryVariant,
                                 expanded = expandedSection == "outOfPlan",
                                 onToggle = { expandedSection = if (expandedSection == "outOfPlan") null else "outOfPlan" }
                             )
@@ -240,7 +260,7 @@ fun CurriculumScreen(
                         SectionHeader(
                             title = "课组进度 (${p.groupTree.size} 大类)",
                             icon = Icons.Default.AccountTree,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MiuixTheme.colorScheme.primary,
                             expanded = expandedSection == "tree",
                             onToggle = { expandedSection = if (expandedSection == "tree") null else "tree" }
                         )
@@ -281,31 +301,31 @@ fun ProgressOverviewCard(
     val cappedProgress = groupTree.sumOf { root ->
         creditMap[root.kzh]?.cappedCredits ?: 0.0
     }
-    Card(
+    top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.primaryContainer)
     ) {
         Column(Modifier.padding(20.dp)) {
             Text(
                 summary.pyfamc,
-                style = MaterialTheme.typography.titleMedium,
+                style = MiuixTheme.textStyles.subtitle,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                color = MiuixTheme.colorScheme.onPrimaryContainer,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.height(4.dp))
             Text(
                 "${summary.college} · ${summary.className}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
             )
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatColumn("方案内已修", "%.1f".format(inPlanRawCredits), MaterialTheme.colorScheme.onPrimaryContainer)
-                StatColumn("总需学分", "%.0f".format(summary.totalRequired), MaterialTheme.colorScheme.onPrimaryContainer)
-                StatColumn("待补学分", if (insufficientCount > 0) "$insufficientCount 组" else "✓", MaterialTheme.colorScheme.onPrimaryContainer)
-                StatColumn("门槛进度", "%.0f%%".format(cappedProgress / summary.totalRequired * 100), MaterialTheme.colorScheme.onPrimaryContainer)
+                StatColumn("方案内已修", "%.1f".format(inPlanRawCredits), MiuixTheme.colorScheme.onPrimaryContainer)
+                StatColumn("总需学分", "%.0f".format(summary.totalRequired), MiuixTheme.colorScheme.onPrimaryContainer)
+                StatColumn("待补学分", if (insufficientCount > 0) "$insufficientCount 组" else "✓", MiuixTheme.colorScheme.onPrimaryContainer)
+                StatColumn("门槛进度", "%.0f%%".format(cappedProgress / summary.totalRequired * 100), MiuixTheme.colorScheme.onPrimaryContainer)
             }
         }
     }
@@ -314,8 +334,8 @@ fun ProgressOverviewCard(
 @Composable
 private fun StatColumn(label: String, value: String, color: androidx.compose.ui.graphics.Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = color)
-        Text(label, style = MaterialTheme.typography.bodySmall, color = color.copy(alpha = 0.7f))
+        Text(value, style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold, color = color)
+        Text(label, style = MiuixTheme.textStyles.footnote1, color = color.copy(alpha = 0.7f))
     }
 }
 
@@ -324,18 +344,19 @@ private fun StatColumn(label: String, value: String, color: androidx.compose.ui.
 @Composable
 fun CreditProgressCard(completedCredits: Double, totalRequired: Double) {
     val ratio = (completedCredits / totalRequired).toFloat().coerceIn(0f, 1f)
-    Card(Modifier.fillMaxWidth()) {
+    top.yukonga.miuix.kmp.basic.Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("门槛进度（按模块最低要求 cap）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                Text("门槛进度（按模块最低要求 cap）", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
                 Text("%.1f / %.0f".format(completedCredits, totalRequired),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             Spacer(Modifier.height(8.dp))
             LinearProgressIndicator(
-                progress = { ratio },
-                modifier = Modifier.fillMaxWidth().height(12.dp),
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                progress = ratio,
+                modifier = Modifier.fillMaxWidth(),
+                height = 12.dp,
+                colors = ProgressIndicatorDefaults.progressIndicatorColors(backgroundColor = MiuixTheme.colorScheme.surfaceVariant),
             )
         }
     }
@@ -351,9 +372,11 @@ fun SectionHeader(
     expanded: Boolean,
     onToggle: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable { onToggle() },
-        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.08f))
+    top.yukonga.miuix.kmp.basic.Card(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = { onToggle() },
+        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = color.copy(alpha = 0.15f))
     ) {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -361,7 +384,7 @@ fun SectionHeader(
         ) {
             Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(8.dp))
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, color = color, modifier = Modifier.weight(1f))
+            Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium, color = color, modifier = Modifier.weight(1f))
             Icon(
                 if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                 contentDescription = null,
@@ -378,30 +401,30 @@ fun SectionHeader(
 fun InsufficientGroupCard(status: GroupCreditStatus) {
     val deficit = status.requiredCredits - status.cappedCredits   // 按门槛 cap 后的差额
     val ratio = (status.cappedCredits / status.requiredCredits).toFloat().coerceIn(0f, 1f)
-    Card(
+    top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f))
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.3f))
     ) {
         Column(Modifier.padding(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.ErrorOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                Icon(Icons.Default.ErrorOutline, null, tint = MiuixTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(status.group.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                    Text(status.group.name, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
                     Text(
                         if (status.isOpen) "开放选课 · 还需 %.1f 学分".format(deficit)
                         else "还需 %.1f 学分 · 进度 %.1f/%.1f".format(deficit, status.cappedCredits, status.requiredCredits),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
                 }
             }
             Spacer(Modifier.height(8.dp))
             LinearProgressIndicator(
-                progress = { ratio },
-                modifier = Modifier.fillMaxWidth().height(6.dp),
-                color = MaterialTheme.colorScheme.error,
-                trackColor = MaterialTheme.colorScheme.errorContainer,
+                progress = ratio,
+                modifier = Modifier.fillMaxWidth(),
+                height = 6.dp,
+                colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = MiuixTheme.colorScheme.error, backgroundColor = MiuixTheme.colorScheme.errorContainer),
             )
         }
     }
@@ -411,21 +434,21 @@ fun InsufficientGroupCard(status: GroupCreditStatus) {
 
 @Composable
 fun OutOfPlanCourseCard(score: ScoreItem) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(score.courseName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                Text(score.courseName, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
                 Text(
                     "${score.coursePoint}学分 · ${score.termCode}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(score.score, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
-                    color = if (score.passFlag) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)) {
-                    Text("方案外", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                Text(score.score, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold,
+                    color = if (score.passFlag) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.error)
+                Surface(shape = RoundedCornerShape(4.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f)) {
+                    Text("方案外", style = MiuixTheme.textStyles.footnote1, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
                 }
             }
         }
@@ -449,17 +472,17 @@ fun GroupTreeNode(
     val isOpen = status?.isOpen == true
     val isSufficient = !hasMinRequirement || cappedCredits >= node.minCredits
 
-    Card(
+    top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = (depth * 16).dp)
-            .clickable { expanded = !expanded }
             .animateContentSize(),
-        colors = CardDefaults.cardColors(
-            containerColor = when (depth) {
-                0 -> MaterialTheme.colorScheme.surfaceContainerHigh
-                1 -> MaterialTheme.colorScheme.surfaceContainer
-                else -> MaterialTheme.colorScheme.surfaceContainerLow
+        onClick = { expanded = !expanded },
+        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = when (depth) {
+                0 -> MiuixTheme.colorScheme.surfaceVariant
+                1 -> MiuixTheme.colorScheme.surfaceVariant
+                else -> MiuixTheme.colorScheme.surfaceVariant
             }
         )
     ) {
@@ -468,7 +491,7 @@ fun GroupTreeNode(
                 Column(Modifier.weight(1f)) {
                     Text(
                         node.name,
-                        style = if (depth == 0) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+                        style = if (depth == 0) MiuixTheme.textStyles.body1 else MiuixTheme.textStyles.body2,
                         fontWeight = FontWeight.Medium
                     )
                     val subtitle = buildString {
@@ -485,19 +508,21 @@ fun GroupTreeNode(
                     }
                     Text(
                         subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isSufficient) MaterialTheme.colorScheme.onSurfaceVariant
-                               else MaterialTheme.colorScheme.error
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = if (isSufficient) MiuixTheme.colorScheme.onSurfaceVariantSummary
+                               else MiuixTheme.colorScheme.error
                     )
                 }
                 if (hasMinRequirement && node.minCredits > 0) {
                     val ratio = (cappedCredits / node.minCredits).toFloat().coerceIn(0f, 1f)
                     CircularProgressIndicator(
-                        progress = { ratio },
-                        modifier = Modifier.size(32.dp),
+                        progress = ratio,
+                        size = 32.dp,
                         strokeWidth = 3.dp,
-                        color = if (isSufficient) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                            foregroundColor = if (isSufficient) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.error,
+                            backgroundColor = MiuixTheme.colorScheme.surfaceVariant
+                        ),
                     )
                 }
                 if (node.children.isNotEmpty() || node.courses.isNotEmpty()) {
@@ -537,10 +562,10 @@ fun GroupTreeNode(
                                 Modifier.fillMaxWidth().padding(vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Default.CheckCircle, null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.primary)
                                 Spacer(Modifier.width(8.dp))
-                                Text(score.courseName, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                                Text("${score.coursePoint}分", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(score.courseName, style = MiuixTheme.textStyles.footnote1, modifier = Modifier.weight(1f))
+                                Text("${score.coursePoint}分", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                             }
                         }
                     }
@@ -560,30 +585,29 @@ fun PlanCourseRow(course: PlanCourse, isCompleted: Boolean) {
             if (isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
             contentDescription = null,
             modifier = Modifier.size(16.dp),
-            tint = if (isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+            tint = if (isCompleted) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.outline
         )
         Spacer(Modifier.width(8.dp))
         Text(
             course.name,
-            style = MaterialTheme.typography.bodySmall,
+            style = MiuixTheme.textStyles.footnote1,
             modifier = Modifier.weight(1f),
-            color = if (isCompleted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+            color = if (isCompleted) MiuixTheme.colorScheme.onSurface else MiuixTheme.colorScheme.onSurfaceVariantSummary
         )
         Text(
             "${course.credits}分",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.width(36.dp),
             textAlign = TextAlign.End
         )
         Text(
             course.requiredFlag,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (course.requiredFlag == "必修") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary,
+            style = MiuixTheme.textStyles.footnote1,
+            color = if (course.requiredFlag == "必修") MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.primaryVariant,
             modifier = Modifier.width(32.dp),
             textAlign = TextAlign.End
         )
     }
 }
-
 

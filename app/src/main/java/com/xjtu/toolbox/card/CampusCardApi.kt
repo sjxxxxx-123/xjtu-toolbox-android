@@ -383,8 +383,8 @@ class CampusCardApi(private val login: CampusCardLogin) {
      * 工作日 vs 周末消费分析
      */
     fun analyzeWeekdayVsWeekend(transactions: List<Transaction>): Pair<DayTypeStats, DayTypeStats> {
-        val weekday = mutableListOf<Double>()
-        val weekend = mutableListOf<Double>()
+        val weekday = mutableListOf<Pair<LocalDate, Double>>()
+        val weekend = mutableListOf<Pair<LocalDate, Double>>()
 
         for (tx in transactions) {
             if (tx.amount >= 0) continue
@@ -394,8 +394,8 @@ class CampusCardApi(private val login: CampusCardLogin) {
 
             val amount = -tx.amount
             when (date.dayOfWeek.value) {
-                in 1..5 -> weekday.add(amount)
-                else -> weekend.add(amount)
+                in 1..5 -> weekday.add(date to amount)
+                else -> weekend.add(date to amount)
             }
         }
 
@@ -480,14 +480,16 @@ data class DayTypeStats(
     val avgPerDay: Double
 ) {
     companion object {
-        fun from(label: String, amounts: List<Double>): DayTypeStats {
-            val days = amounts.groupBy { it }.size.coerceAtLeast(1) // 大致天数
+        /** dateAmountPairs: (date, amount) 列表，日期用于准确统计天数 */
+        fun from(label: String, dateAmountPairs: List<Pair<LocalDate, Double>>): DayTypeStats {
+            val distinctDays = dateAmountPairs.map { it.first }.toSet().size.coerceAtLeast(1)
+            val amounts = dateAmountPairs.map { it.second }
             return DayTypeStats(
                 label = label,
                 count = amounts.size,
                 totalAmount = amounts.sum(),
                 avgPerTransaction = if (amounts.isNotEmpty()) amounts.average() else 0.0,
-                avgPerDay = amounts.sum() / days.coerceAtLeast(1)
+                avgPerDay = amounts.sum() / distinctDays
             )
         }
     }

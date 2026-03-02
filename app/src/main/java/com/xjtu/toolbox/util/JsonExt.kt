@@ -43,10 +43,10 @@ fun String?.safeParseJsonObject(): JsonObject {
     val element = try {
         JsonParser.parseString(this)
     } catch (e: Exception) {
-        throw RuntimeException("服务器返回非JSON数据: ${this.take(200)}", e)
+        throw RuntimeException("数据解析失败", e)
     }
     if (!element.isJsonObject) {
-        throw RuntimeException("预期JSON对象但收到其他类型: ${this.take(200)}")
+        throw RuntimeException("数据格式异常")
     }
     return element.asJsonObject
 }
@@ -57,10 +57,10 @@ fun String?.safeParseJsonArray(): JsonArray {
     val element = try {
         JsonParser.parseString(this)
     } catch (e: Exception) {
-        throw RuntimeException("服务器返回非JSON数据: ${this.take(200)}", e)
+        throw RuntimeException("数据解析失败", e)
     }
     if (!element.isJsonArray) {
-        throw RuntimeException("预期JSON数组但收到其他类型: ${this.take(200)}")
+        throw RuntimeException("数据格式异常")
     }
     return element.asJsonArray
 }
@@ -71,6 +71,6 @@ fun String?.safeParseJson(): JsonElement {
     return try {
         JsonParser.parseString(this)
     } catch (e: Exception) {
-        throw RuntimeException("服务器返回非JSON数据: ${this.take(200)}", e)
+        throw RuntimeException("数据解析失败", e)
     }
 }

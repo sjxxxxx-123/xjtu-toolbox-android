@@ -25,6 +25,50 @@ data class BookResult(
     val finalUrl: String = ""
 )
 
+/**
+ * 座位推荐偏好权重 v2。
+ * 所有 Int 字段表示分数加减量（0=不在意；正数=偏好；负数=刻意反向）。
+ */
+data class RecommendPrefs(
+    // ── 核心：孤独/同桌隔离 ──────────────────────────────────────
+    /** 同桌邻座空闲度权重（每个空邻座加 N 分，默认 3） */
+    val emptinessWeight: Int = 3,
+    /** 同桌全空时的额外奖励 */
+    val allEmptyBonus: Int = 5,
+    /** 同桌每多一位占座者扣 N 分；0=无所谓，3=独享型，5=极度介意 */
+    val isolationLevel: Int = 2,
+
+    // ── 噪音/干扰 ──────────────────────────────────────────────────
+    /** 入口端（近 rowLength-1 侧）扣分 */
+    val avoidEntrancePenalty: Int = 2,
+    /** 出口端（unitIndexInRow ≤ 1 侧）扣分 */
+    val avoidExitPenalty: Int = 0,
+    /** 左右相邻12座单元占用率 > 50% 时扣分 */
+    val avoidAdjacentBusyPenalty: Int = 3,
+
+    // ── 空间/朝向偏好 ─────────────────────────────────────────────────
+    /** 靠墙（F/K 席）加分；正=喜欢靠墙，负=喜欢靠走廊 */
+    val wallBias: Int = 1,
+    /** 行首/末角落单元加分 */
+    val cornerBias: Int = 1,
+    /** 走廊侧座位扣分：优先远离走廊，宁愿背后有人也不面对走廊 */
+    val corridorSidePenalty: Int = 2,
+    /** 背对走廊/面朝内侧（H/L 席）加分 */
+    val facingWallBias: Int = 0,
+    /** F 席对面人多时按 acrossCount 比例扣分 */
+    val avoidFacingCrowdBias: Int = 0,
+
+    // ── 时段/历史（可选） ──────────────────────────────────────────
+    /** 是否启用时段自动微调（上午偏深区、下午偏靠墙） */
+    val enableTimeSlotAdjust: Boolean = false,
+    /** 历史偏好 gridX 范围内加分 */
+    val preferredGridXRange: IntRange? = null,
+    /** 历史偏好 gridY 范围内加分 */
+    val preferredGridYRange: IntRange? = null,
+    /** 历史区域加分量；0=禁用 */
+    val historyBias: Int = 0,
+)
+
 /** "我的预约"信息 */
 data class MyBookingInfo(
     val seatId: String?,
@@ -74,6 +118,15 @@ class LibraryApi(private val login: LibraryLogin) {
 
         /** 从 scount 原始数据中只保留和 AREA_MAP value 匹配的独立区域 code */
         private val VALID_AREA_CODES = AREA_MAP.values.toSet()
+
+        /** 反向映射：areaCode → 区域显示名 */
+        val AREA_MAP_REVERSE = AREA_MAP.entries.associate { (name, code) -> code to name }
+
+        /**
+         * 座位号正则：匹配字母前缀的 (C08, Y003) 和纯数字零开头的 (002, 019)。
+         * 东南侧/西南侧的座位是纯数字编号，没有字母前缀。
+         */
+        val SEAT_ID_REGEX = Regex("""(?:[A-Z]\d{2,4}|\b\d{3}\b)""")
 
         fun filterScount(raw: Map<String, AreaStats>): Map<String, AreaStats> =
             raw.filterKeys { it in VALID_AREA_CODES }
@@ -329,7 +382,7 @@ class LibraryApi(private val login: LibraryLogin) {
                 if ("Not Found" in bodyText && bodyText.length < 800) continue
 
                 // 检查有无预约内容（座位号 + 预约状态）
-                val hasSeatId = Regex("[A-Z]\\d{2,4}").containsMatchIn(bodyText)
+                val hasSeatId = SEAT_ID_REGEX.containsMatchIn(bodyText)
                 val hasStatus = "预约状态" in bodyText
 
                 if (!hasSeatId) {
@@ -366,7 +419,7 @@ class LibraryApi(private val login: LibraryLogin) {
         doc: org.jsoup.nodes.Document, bodyText: String,
         html: String, finalUrl: String
     ): MyBookingInfo? {
-        val inactiveStatuses = setOf("已取消", "已完成", "已过期", "已失效", "已违约", "超时取消")
+        val inactiveStatuses = setOf("已取消", "已完成", "已过期", "已失效", "已违约", "超时取消", "超时未入馆", "超时")
 
         // 按"预约状态"分割文本，找到活跃预约的文本块
         val statusRegex = Regex("""预约状态[:：]\s*(\S+)""")
@@ -374,7 +427,7 @@ class LibraryApi(private val login: LibraryLogin) {
 
         if (statusMatches.isEmpty()) {
             // 无明确状态标记，回退：找第一个座位号
-            val seatId = Regex("[A-Z]\\d{2,4}").find(bodyText)?.value ?: return null
+            val seatId = SEAT_ID_REGEX.find(bodyText)?.value ?: return null
             val area = AREA_MAP.keys.firstOrNull { it in bodyText }
             val actionUrls = parseActionsFromHtml(doc, html)
             Log.d(TAG, "getMyBooking (no status): seatId=$seatId, area=$area")
@@ -393,7 +446,7 @@ class LibraryApi(private val login: LibraryLogin) {
             }
 
             // 找到活跃预约！提取该文本块内的信息
-            val seatId = Regex("[A-Z]\\d{2,4}").findAll(blockText).lastOrNull()?.value
+            val seatId = SEAT_ID_REGEX.findAll(blockText).lastOrNull()?.value
             if (seatId == null) {
                 blockStart = blockEnd
                 continue
@@ -470,10 +523,13 @@ class LibraryApi(private val login: LibraryLogin) {
 
     private fun classifyActionLabel(text: String): String? = when {
         "取消" in text && "预约" in text -> "取消预约"
-        "线上签到" in text -> "线上签到"
-        "签到" in text && "回馆" !in text && "离" !in text -> "签到"
-        "离馆" in text || "暂离" in text -> "临时离馆"
-        "回馆" in text || "返回签到" in text -> "回馆签到"
+        "线上签到" in text -> "入馆签到"
+        "首次入馆" in text || "入馆" in text && "离" !in text && "返" !in text -> "入馆签到"
+        "签到" in text && "回馆" !in text && "离" !in text && "返" !in text -> "入馆签到"
+        "中途离开" in text -> "中途离开"
+        "离馆" in text || "暂离" in text || "中途离" in text -> "中途离开"
+        "中途返回" in text -> "中途返回"
+        "回馆" in text || "返回签到" in text || "中途返" in text -> "中途返回"
         "换座" in text -> "我想换座"
         "取消" in text -> "取消预约"
         else -> null
@@ -510,8 +566,8 @@ class LibraryApi(private val login: LibraryLogin) {
         return when (action) {
             "cancel" -> "$BASE_URL/my/?cancel=1&ri=$reserveId"
             "ruguan1" -> "$BASE_URL/my/?firstruguan=1&ri=$reserveId"
-            "midleave" -> "$BASE_URL/my/?midleave=1&ri=$reserveId"
-            "midreturn" -> "$BASE_URL/my/?midreturn=1&ri=$reserveId"
+            "leave", "midleave" -> "$BASE_URL/my/?midleave=1&ri=$reserveId"
+            "return", "midreturn" -> "$BASE_URL/my/?midreturn=1&ri=$reserveId"
             else -> {
                 Log.w(TAG, "Unknown showConfirmModal action: $action (ri=$reserveId)")
                 null
@@ -536,9 +592,9 @@ class LibraryApi(private val login: LibraryLogin) {
                     if (url != null) {
                         val label = when (action) {
                             "cancel" -> "取消预约"
-                            "ruguan1" -> "线上签到"
-                            "midleave" -> "临时离馆"
-                            "midreturn" -> "回馆签到"
+                            "ruguan1" -> "入馆签到"
+                            "leave", "midleave" -> "中途离开"
+                            "return", "midreturn" -> "中途返回"
                             else -> null
                         }
                         if (label != null && label !in found) {
@@ -555,12 +611,12 @@ class LibraryApi(private val login: LibraryLogin) {
                     val urlPrefix = match.groupValues[1]
                     val directId = match.groupValues[2]
                     if (directId.isNotEmpty()) {
-                        val fullUrl = "$urlPrefix$directId"
+                        val fullUrl = "$BASE_URL$urlPrefix$directId"
                         val label = when {
                             "cancel" in urlPrefix -> "取消预约"
-                            "firstruguan" in urlPrefix -> "线上签到"
-                            "midleave" in urlPrefix -> "临时离馆"
-                            "midreturn" in urlPrefix -> "回馆签到"
+                            "firstruguan" in urlPrefix -> "入馆签到"
+                            "midleave" in urlPrefix -> "中途离开"
+                            "midreturn" in urlPrefix -> "中途返回"
                             else -> null
                         }
                         if (label != null && label !in found) {
@@ -576,16 +632,17 @@ class LibraryApi(private val login: LibraryLogin) {
                 Regex("""['"](/my/cancel[^'"]*)['"]""")
             ).forEach { pattern ->
                 pattern.find(code)?.groupValues?.get(1)?.let { url ->
-                    if (url.startsWith("/") && url.length > 2 && "取消预约" !in found) found["取消预约"] = url
+                    if (url.startsWith("/") && url.length > 2 && "取消预约" !in found) found["取消预约"] = if (url.startsWith("/")) "$BASE_URL$url" else url
                 }
             }
             // 签到相关
             listOf(
-                Regex("""['"]([^'"]*(?:checkin|signin|签到)[^'"]*)['"]"""),
-                Regex("""['"](/my/checkin[^'"]*)['"]""")
+                Regex("""['"]([^'"]*(?:checkin|signin|签到|firstruguan)[^'"]*)['"]"""),
+                Regex("""['"](/my/checkin[^'"]*)['"]"""),
+                Regex("""['"](/my/\?firstruguan[^'"]*)['"]""")
             ).forEach { pattern ->
                 pattern.find(code)?.groupValues?.get(1)?.let { url ->
-                    if (url.startsWith("/") && url.length > 2 && "签到" !in found) found["签到"] = url
+                    if (url.startsWith("/") && url.length > 2 && "入馆签到" !in found) found["入馆签到"] = if (url.startsWith("/")) "$BASE_URL$url" else url
                 }
             }
         }
@@ -594,8 +651,10 @@ class LibraryApi(private val login: LibraryLogin) {
 
     /** 执行操作（签到/离馆/回馆/取消） */
     fun executeAction(actionUrl: String): BookResult {
+        // 兜底：相对路径补全 scheme + host
+        val normalizedUrl = if (actionUrl.startsWith("/")) "$BASE_URL$actionUrl" else actionUrl
         try {
-            val response = login.client.newCall(buildRequest(actionUrl)).execute()
+            val response = login.client.newCall(buildRequest(normalizedUrl)).execute()
             val html = response.body?.use { it.string() } ?: ""
             val finalUrl = response.request.url.toString()
             Log.d(TAG, "action: url=$actionUrl, finalUrl=$finalUrl, len=${html.length}")
@@ -611,23 +670,241 @@ class LibraryApi(private val login: LibraryLogin) {
         }
     }
 
-    /** 推荐座位（邻座空闲度排序） */
-    fun recommendSeats(seats: List<SeatInfo>, topN: Int = 5): List<SeatInfo> {
+    private data class ScoreEntry(val seat: SeatInfo, val score: Int)
+
+    /** 区域分区标识符：防止 F/H → FH、K/L → KL 跨区污染 */
+    private fun seatRegion(id: String): String = when (id.firstOrNull()) {
+        'F', 'H' -> "FH"; 'K', 'L' -> "KL"
+        else -> id.takeWhile { it.isLetter() }
+    }
+
+    /**
+     * 相邻桌组单元的占用率（0.0–1.0）。
+     * 通过 region 参数防止 F/H、G、M 等不同物理区跨区匹配。
+     */
+    private fun adjacentUnitOccupancyRate(
+        pos: SeatNeighborData.SeatPosition,
+        unitDelta: Int,
+        region: String,
+        posCache: Map<SeatInfo, SeatNeighborData.SeatPosition>,
+        seatMap: Map<String, Boolean>
+    ): Double {
+        if (pos.rowIndex < 0 || pos.unitIndexInRow < 0) return 0.0
+        val targetUnit = pos.unitIndexInRow + unitDelta
+        if (targetUnit < 0 || targetUnit >= pos.rowLength) return 0.0
+        val unitSeats = posCache.filter { (s, p) ->
+            p.rowIndex == pos.rowIndex && p.unitIndexInRow == targetUnit
+                && seatRegion(s.seatId) == region
+        }
+        if (unitSeats.isEmpty()) return 0.0
+        val occupied = unitSeats.count { (s, _) -> seatMap[s.seatId] == false }
+        return occupied.toDouble() / unitSeats.size
+    }
+
+    /**
+     * 推荐座位：基于物理桌组邻座空闲度排序。
+     * 使用 [SeatNeighborData] 的平面图标注数据确定"同桌"关系，
+     * 优先推荐同桌全空的座位（安静/可与朋友同坐）。
+     */
+    fun recommendSeats(
+        seats: List<SeatInfo>,
+        areaCode: String,
+        topN: Int = 5,
+        prefs: RecommendPrefs = RecommendPrefs()
+    ): List<SeatInfo> {
         val available = seats.filter { it.available }
         if (available.size <= topN) return available
 
-        val grouped = seats.groupBy { it.seatId.firstOrNull() ?: ' ' }
+        // 没有平面图数据的区域（rowLength=0=未覆盖）—— 不做推荐，避免给出无根据的结果
+        if (SeatNeighborData.getSeatPosition(available.first().seatId, areaCode).rowLength == 0)
+            return emptyList()
+
+        val seatMap = seats.associate { it.seatId to it.available }
+
+        // 预计算各有效座位的空间位置（供相邻单元可用率计算）
+        val posCache = seats.associateWith { SeatNeighborData.getSeatPosition(it.seatId, areaCode) }
+
+        // 预计算 SW/SE 左列走廊桌标记：
+        //   左列(065-136): buildLeftColumnGroups 偶数批次=内侧桌, 奇数批次=走廊桌
+        //   走廊桌座位满足 (136-num)%8 in 4..7，仅限该范围
+        val corridorBenchCache: Set<String> = when {
+            areaCode.endsWith("southwest") || areaCode.endsWith("southeast") ->
+                available.filter { s ->
+                    val n = s.seatId.toIntOrNull() ?: return@filter false
+                    n in 65..136 && (136 - n) % 8 >= 4   // 左列走廊桌范围
+                }.map { it.seatId }.toHashSet()
+            else -> emptySet()
+        }
+        // corridorBenchColCache: 走廊桌内 col=1（最靠走廊列）
+        //   d3(b-4, b-7, b-5, b-6): b-7→rem=7, b-6→rem=6 为 col1，最靠列间走廊
+        //   例: m=5(b=136): 089=(136-89)%8=7✓, 090=(136-90)%8=6✓; 091=5✗, 092=4✗
+        val corridorBenchColCache: Set<String> = when {
+            corridorBenchCache.isNotEmpty() ->
+                available.filter { s ->
+                    val n = s.seatId.toIntOrNull() ?: return@filter false
+                    if (n !in 65..136) return@filter false
+                    val rem = (136 - n) % 8
+                    rem == 7 || rem == 6   // col1: 最靠走廊列（b-7=idx1, b-6=idx3）
+                }.map { it.seatId }.toHashSet()
+            else -> emptySet()
+        }
+        val tableRowIndexCache: Map<String, Int> = emptyMap()  // 预留
+
         val scores = available.map { seat ->
-            val row = grouped[seat.seatId.firstOrNull() ?: ' '] ?: return@map seat to 0
-            val idx = row.indexOf(seat)
-            var score = 0
-            if (idx > 0 && row[idx - 1].available) score += 2
-            if (idx < row.lastIndex && row[idx + 1].available) score += 2
-            if (idx > 0 && idx < row.lastIndex && row[idx - 1].available && row[idx + 1].available) score += 3
-            if (idx == 0 || idx == row.lastIndex) score += 1
-            seat to score
+            // ── A. 桌组空闲度（核心评分 + 孤独惩罚 + 双向末端距离奖励）──────────────
+            val neighbors = SeatNeighborData.getNeighborSeats(seat.seatId, areaCode)
+            val known     = neighbors.filter { it in seatMap }
+            val avail     = known.count { seatMap[it] == true }
+            val occupied  = known.size - avail
+            // norm: 6座组=1.0, 12座=0.5, 2座=3.0——修正大组虚高问题
+            // 防御: 若可见邻座数不足理论组员的 50%，应降级成第4座组（避免分母过小导致 norm 虚高）
+            val norm      = when {
+                known.isEmpty() -> 1f
+                neighbors.isNotEmpty() && known.size < neighbors.size / 2 -> 6f / 4  // 数据不完整降级
+                else -> 6f / known.size
+            }
+            var score     = (avail * prefs.emptinessWeight * norm).toInt()
+            if (known.isNotEmpty() && occupied == 0) score += prefs.allEmptyBonus
+            if (neighbors.size <= 2) score += 1                              // 小桌基础加分
+
+            // 孤独惩罚（归一化+下界：至少 occupied×isolationLevel，防止大组 norm 变小让大桌有一人仍高分）
+            val basePenalty = if (occupied == 0) 0 else
+                maxOf(occupied * prefs.isolationLevel,
+                      (occupied * prefs.isolationLevel * norm).toInt())
+            // 小桌（norm≥1 = 4–6 座组）过半被占时产生"夹击感"，双倍计算孤独惩罚（夹击双倍）
+            // 例：4 人桌已有 2 人 → 你被邻座+对面夹住 → penalty × 2
+            val squeezed = norm >= 1f && occupied > 0 && occupied * 2 >= known.size
+            score -= if (squeezed) basePenalty * 2 else basePenalty  // 夹击双倍
+            // 全桌最后一席：追加"孤岛"惩罚（与 allEmptyBonus 对称），避免被误推荐进前 N
+            if (known.isNotEmpty() && avail == 0) score -= prefs.allEmptyBonus
+
+            // 双向对座组（isBiEntrance=J 区）末端距离奖励（桌组空闲度的细粒度修正）：
+            // 同组内有人时，优先选离占座者更远的末端席（最大 +5），
+            // 例：使 J144 > J133（同侧末端优先）
+            val pos = posCache[seat] ?: SeatNeighborData.getSeatPosition(seat.seatId, areaCode)
+            if (occupied > 0 && pos.gridY >= 0 && pos.isBiEntrance) {
+                val occupiedGridYs = known
+                    .filter { seatMap[it] == false }
+                    .mapNotNull { id -> seats.find { s -> s.seatId == id }?.let { s -> posCache[s]?.gridY } }
+                    .filter { it >= 0 }
+                if (occupiedGridYs.isNotEmpty()) {
+                    val minDist = occupiedGridYs.minOf { kotlin.math.abs(it - pos.gridY) }
+                    score += minDist.coerceAtMost(5)
+                }
+            }
+
+            // ── B. 噪音惩罚（入口 / 出口）──────────────────────────────────────────
+            if (pos.isNearEntrance)           score -= prefs.avoidEntrancePenalty
+            // 出口端：单入口区域 = 低索引端；双入口区域（isBiEntrance）两头均为出口
+            val isExitEnd = pos.unitIndexInRow in 0..1 ||
+                (pos.isBiEntrance && pos.rowLength > 0 && pos.unitIndexInRow >= pos.rowLength - 2)
+            if (isExitEnd) score -= prefs.avoidExitPenalty
+
+            // ── C. 邻近单元拥挤度──────────────────────────────────────────────────
+            // 相邻左右单元的连续比例惩罚；有人时至少 -1，体现"相背拥挤"感
+            if (prefs.avoidAdjacentBusyPenalty > 0) {
+                val region    = seatRegion(seat.seatId)
+                val leftRate  = adjacentUnitOccupancyRate(pos, -1, region, posCache, seatMap).toFloat()
+                val rightRate = adjacentUnitOccupancyRate(pos, +1, region, posCache, seatMap).toFloat()
+                if (leftRate  > 0f) score -= maxOf(1, (leftRate  * prefs.avoidAdjacentBusyPenalty * 3).toInt()).coerceAtMost(8)
+                if (rightRate > 0f) score -= maxOf(1, (rightRate * prefs.avoidAdjacentBusyPenalty * 3).toInt()).coerceAtMost(8)
+            }
+
+            // SW/SE 配对桌占用惩罚：两张4人桌物理拼接但算法独立分组，
+            // 检测同 rowIndex+unitIndex 但不属于自身组的被占邻桌
+            val neighborsSet = neighbors.toSet()  // 预先转为 Set，供 buddyTable 过滤复用
+            if (prefs.avoidAdjacentBusyPenalty > 0 && pos.rowLength > 0 && pos.unitIndexInRow >= 0) {
+                val region = seatRegion(seat.seatId)
+                val buddySeats = posCache.filter { (s, p) ->
+                    p.rowIndex == pos.rowIndex && p.unitIndexInRow == pos.unitIndexInRow
+                        && seatRegion(s.seatId) == region
+                        && s.seatId !in neighborsSet && s.seatId != seat.seatId
+                }
+                if (buddySeats.isNotEmpty()) {
+                    val buddyOccupied = buddySeats.count { (s, _) -> seatMap[s.seatId] == false }
+                    if (buddyOccupied > 0) {
+                        val buddyRate = buddyOccupied.toFloat() / buddySeats.size
+                        // avoidAdjacentBusyPenalty * 2：配对桌比左右相邻单元距离更近，惩罚倍率提升
+                        score -= maxOf(1, (buddyRate * prefs.avoidAdjacentBusyPenalty * 2).toInt())
+                        // 夹击惩罚：本桌与配对桌同时有人 → "前后夹击"场景，追加强化惩罚
+                        if (occupied > 0) {
+                            score -= (occupied + buddyOccupied) * prefs.isolationLevel * 2
+                        }
+                    }
+                }
+            }
+
+            // ── D. 空间/朝向偏好──────────────────────────────────────────────────
+            if (prefs.wallBias != 0) score += (pos.wallProximityScore * prefs.wallBias).toInt()
+            if (pos.isCornerUnit)    score += prefs.cornerBias
+            // 走廊侧扣分：优先远离走廊，即使背后有人也强过正面对走廊
+            if (pos.isCorridorSide && prefs.corridorSidePenalty != 0)
+                score -= prefs.corridorSidePenalty
+            // SW/SE 左列走廊桌惩罚：走廊桌(靠列间走廊)整体额外扣分
+            //   内侧桌(096/093等) > 走廊桌col0(092/091等) > 走廊桌col1(089/090等)
+            //   col1=最靠走廊列（d3里 b-7, b-6 的座位）再额外扣分一次
+            if (seat.seatId in corridorBenchCache && prefs.corridorSidePenalty != 0) {
+                score -= prefs.corridorSidePenalty  // 走廊桌整体再惩罚
+                if (seat.seatId in corridorBenchColCache)
+                    score -= prefs.corridorSidePenalty  // col1最靠走廊，再扣一次
+            }
+            @Suppress("UNUSED_VARIABLE")
+            val tableRowIdx = tableRowIndexCache[seat.seatId] ?: -1  // 预留
+            if (!pos.isWallSide && pos.facingDir != SeatNeighborData.FacingDir.UNKNOWN)
+                score += prefs.facingWallBias
+            if (pos.acrossCount > 0 && prefs.avoidFacingCrowdBias != 0)
+                // ceil 除法避免小值截断为0（如 acrossCount=2, bias=1 → ceil(0.5)=1）
+                score -= Math.ceil(pos.acrossCount * prefs.avoidFacingCrowdBias / 4.0).toInt()
+
+            // ── E. 时段/历史（可选）────────────────────────────────────────────────
+            if (prefs.enableTimeSlotAdjust && pos.rowLength > 0) {
+                val hour = java.util.Calendar.getInstance()
+                    .get(java.util.Calendar.HOUR_OF_DAY)
+                when (hour) {
+                    in 8..11  -> if (!pos.isNearEntrance && pos.unitIndexInRow < pos.rowLength / 2)
+                                     score += 2   // 上午偏深区角落
+                    in 13..17 -> if (pos.isWallSide) score += 1              // 下午偏靠墙
+                }
+            }
+
+            if (prefs.historyBias > 0 && pos.gridX >= 0 && pos.gridY >= 0) {
+                val inX = prefs.preferredGridXRange?.contains(pos.gridX) == true
+                val inY = prefs.preferredGridYRange?.contains(pos.gridY) == true
+                if (inX && inY) score += prefs.historyBias
+            }
+
+            ScoreEntry(seat, score)
         }
 
-        return scores.sortedByDescending { it.second }.take(topN).map { it.first }
+        // 扩散过滤：同行邻座只取1席，避免旁边两人都被推荐；
+        //   背靠背/对面座位（不同行）可独立推荐，体现其独立选择价值
+        val sorted      = scores.sortedByDescending { it.score }
+        val scoreFloor  = if (sorted.firstOrNull()?.score ?: 0 > 0) 0 else Int.MIN_VALUE
+        val result      = mutableListOf<SeatInfo>()
+        val pickedGroup = mutableSetOf<String>()   // 已选座位及其旁侧成员集合
+        for ((seat, sc) in sorted) {
+            if (sc < scoreFloor) break            // 停止：余下全是低分，无需继续
+            if (seat.seatId in pickedGroup) continue
+            result.add(seat)
+            pickedGroup.add(seat.seatId)
+            pickedGroup.addAll(SeatNeighborData.getSideNeighbors(seat.seatId, areaCode))
+            if (result.size >= topN) break
+        }
+        // 回填：高聚集场景扩散后不足 topN 时，放宽旁侧约束补入次优席
+        // 仍遵守 scoreFloor：负分席不补入（极端拥挤时如实返回少于 topN 的结果，
+        // 比硬塞劣质座位更诚实；只有全场皆负分时 scoreFloor=MIN_VALUE 才不限制）
+        if (result.size < topN) {
+            for ((seat, sc) in sorted) {
+                if (sc < scoreFloor) break
+                if (seat.seatId !in pickedGroup) {
+                    result.add(seat)
+                    pickedGroup.add(seat.seatId)
+                    pickedGroup.addAll(SeatNeighborData.getSideNeighbors(seat.seatId, areaCode))
+                }
+                if (result.size >= topN) break
+            }
+        }
+
+        return result
     }
 }

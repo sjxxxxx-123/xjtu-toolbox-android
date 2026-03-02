@@ -1,8 +1,31 @@
 package com.xjtu.toolbox.attendance
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,11 +33,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import com.xjtu.toolbox.ui.components.AppDropdownMenu
+import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -32,7 +57,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AttendanceScreen(
     login: AttendanceLogin,
@@ -171,10 +196,14 @@ fun AttendanceScreen(
     val attendanceRate = if (displayRecords.isNotEmpty())
         (totalNormal + totalLeave) * 100 / displayRecords.size else 100
 
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("考勤查询") },
+                title = "考勤查询",
+                color = MiuixTheme.colorScheme.surfaceVariant,
+                largeTitle = "考勤查询",
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -197,12 +226,18 @@ fun AttendanceScreen(
                 modifier = Modifier.fillMaxSize().padding(padding)
             )
         } else {
-            Column(Modifier.fillMaxSize().padding(padding)) {
+            Column(Modifier.fillMaxSize().padding(padding).background(MiuixTheme.colorScheme.surfaceVariant).nestedScroll(scrollBehavior.nestedScrollConnection)) {
                 // 学期选择器
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    OutlinedCard(
-                        onClick = { termDropdownExpanded = true },
+                    Surface(
                         modifier = Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = top.yukonga.miuix.kmp.utils.SinkFeedback()
+                            ) { termDropdownExpanded = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MiuixTheme.colorScheme.surfaceVariant
                     ) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
@@ -210,16 +245,16 @@ fun AttendanceScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(selectedTermName.ifEmpty { "选择学期" },
-                                style = MaterialTheme.typography.bodyLarge)
+                                style = MiuixTheme.textStyles.body1)
                             Icon(Icons.Default.ArrowDropDown, null)
                         }
                     }
-                    DropdownMenu(
+                    AppDropdownMenu(
                         expanded = termDropdownExpanded,
                         onDismissRequest = { termDropdownExpanded = false }
                     ) {
                         termList.forEach { term ->
-                            DropdownMenuItem(
+                            AppDropdownMenuItem(
                                 text = { Text(term.name) },
                                 onClick = {
                                     switchTerm(term.bh, term.name)
@@ -227,7 +262,7 @@ fun AttendanceScreen(
                                 },
                                 trailingIcon = {
                                     if (term.bh == selectedTermBh)
-                                        Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
+                                        Icon(Icons.Default.Check, null, tint = MiuixTheme.colorScheme.primary)
                                 }
                             )
                         }
@@ -251,19 +286,15 @@ fun AttendanceScreen(
                             val weekRecordCount = records.count { it.week == w }
                             val hasIssue = records.any { it.week == w &&
                                     (it.status == WaterType.ABSENCE || it.status == WaterType.LATE) }
-                            FilterChip(
+                            AppFilterChip(
                                 selected = selectedWeek == w,
                                 onClick = { selectedWeek = if (selectedWeek == w) null else w },
-                                label = { Text("$w") },
+                                label = "$w",
                                 modifier = Modifier.height(32.dp),
-                                colors = when {
-                                    hasIssue && selectedWeek != w ->
-                                        FilterChipDefaults.filterChipColors(
-                                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f))
-                                    weekRecordCount == 0 && selectedWeek != w ->
-                                        FilterChipDefaults.filterChipColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
-                                    else -> FilterChipDefaults.filterChipColors()
+                                unselectedContainerColor = when {
+                                    hasIssue -> MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+                                    weekRecordCount == 0 -> MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                    else -> Color.Transparent
                                 }
                             )
                         }
@@ -271,20 +302,25 @@ fun AttendanceScreen(
                 }
 
                 // Tab
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    SegmentedButton(selected = selectedTab == 0, onClick = { selectedTab = 0 },
-                        shape = SegmentedButtonDefaults.itemShape(0, 2),
-                        icon = { SegmentedButtonDefaults.Icon(selectedTab == 0) { Icon(Icons.Default.BarChart, null, Modifier.size(18.dp)) } }
-                    ) { Text("概览") }
-                    SegmentedButton(selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                        shape = SegmentedButtonDefaults.itemShape(1, 2),
-                        icon = { SegmentedButtonDefaults.Icon(selectedTab == 1) { Icon(Icons.AutoMirrored.Filled.FormatListBulleted, null, Modifier.size(18.dp)) } }
-                    ) { Text("流水") }
+                Surface(modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.surfaceVariant) {
+                TabRowWithContour(
+                    tabs = listOf("概览", "流水"),
+                    selectedTabIndex = selectedTab,
+                    onTabSelected = { selectedTab = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                )
                 }
 
                 AnimatedContent(
                     targetState = selectedTab,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    transitionSpec = {
+                        val direction = if (targetState > initialState) 1 else -1
+                        (slideInHorizontally { direction * it / 4 } + fadeIn(
+                            androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 500f)
+                        )) togetherWith (slideOutHorizontally { -direction * it / 4 } + fadeOut(
+                            androidx.compose.animation.core.spring(dampingRatio = 0.85f, stiffness = 500f)
+                        ))
+                    },
                     label = "attendanceTab"
                 ) { tab ->
                     when (tab) {
@@ -312,18 +348,16 @@ private fun OverviewTab(
     onSearchChange: (String) -> Unit
 ) {
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
         // 概览卡片
         item {
-            Card(
+            top.yukonga.miuix.kmp.basic.Card(
                 Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (attendanceRate >= 90) MaterialTheme.colorScheme.primaryContainer
-                    else if (attendanceRate >= 70) MaterialTheme.colorScheme.tertiaryContainer
-                    else MaterialTheme.colorScheme.errorContainer
+                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = if (attendanceRate < 70) MiuixTheme.colorScheme.errorContainer
+                    else MiuixTheme.colorScheme.surfaceVariant
                 )
             ) {
                 Column(Modifier.padding(16.dp)) {
@@ -331,26 +365,26 @@ private fun OverviewTab(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
                         Column {
-                            Text("$studentName 的考勤", style = MaterialTheme.typography.titleMedium)
+                            Text("$studentName 的考勤", style = MiuixTheme.textStyles.subtitle)
                             Text(
                                 if (selectedWeek != null) "第${selectedWeek}周 · $totalRecords 条记录"
                                 else "全学期 · $totalRecords 条记录",
-                                style = MaterialTheme.typography.bodySmall
+                                style = MiuixTheme.textStyles.footnote1
                             )
                         }
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = when {
-                                attendanceRate >= 90 -> MaterialTheme.colorScheme.primary
-                                attendanceRate >= 70 -> MaterialTheme.colorScheme.tertiary
-                                else -> MaterialTheme.colorScheme.error
+                                attendanceRate >= 90 -> MiuixTheme.colorScheme.primary
+                                attendanceRate >= 70 -> MiuixTheme.colorScheme.primaryVariant
+                                else -> MiuixTheme.colorScheme.error
                             }
                         ) {
                             Text(
                                 "${attendanceRate}%",
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.titleMedium,
-                                color = Color.White,
+                                style = MiuixTheme.textStyles.subtitle,
+                                color = MiuixTheme.colorScheme.onPrimary,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -360,8 +394,8 @@ private fun OverviewTab(
                         Text(
                             "⚠ 有 $totalAbsence 次缺勤记录" +
                                     if (totalLate > 0) "，$totalLate 次迟到" else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.error
                         )
                     }
                 }
@@ -371,29 +405,30 @@ private fun OverviewTab(
         // 四格统计
         item {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatCard("正常", totalNormal.toString(), MaterialTheme.colorScheme.primary, Modifier.weight(1f))
-                StatCard("迟到", totalLate.toString(), MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
-                StatCard("缺勤", totalAbsence.toString(), MaterialTheme.colorScheme.error, Modifier.weight(1f))
-                StatCard("请假", totalLeave.toString(), MaterialTheme.colorScheme.onSurfaceVariant, Modifier.weight(1f))
+                StatCard("正常", totalNormal.toString(), MiuixTheme.colorScheme.primary, Modifier.weight(1f))
+                StatCard("迟到", totalLate.toString(), MiuixTheme.colorScheme.primaryVariant, Modifier.weight(1f))
+                StatCard("缺勤", totalAbsence.toString(), MiuixTheme.colorScheme.error, Modifier.weight(1f))
+                StatCard("请假", totalLeave.toString(), MiuixTheme.colorScheme.onSurfaceVariantSummary, Modifier.weight(1f))
             }
         }
 
         // 按课程统计
         if (courseStats.isNotEmpty()) {
             item {
-                Text("按课程统计", style = MaterialTheme.typography.titleSmall,
+                Text("按课程统计", style = MiuixTheme.textStyles.body1,
                     fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
             }
 
             // 搜索
             item {
-                OutlinedTextField(
+                TextField(
                     value = searchQuery,
                     onValueChange = onSearchChange,
-                    placeholder = { Text("搜索课程...") },
+                    label = "搜索课程...",
+                    useLabelAsPlaceholder = true,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    leadingIcon = { Icon(Icons.Default.Search, null, Modifier.padding(start = 4.dp).size(20.dp)) },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) IconButton(onClick = { onSearchChange("") }) {
                             Icon(Icons.Default.Clear, null)
@@ -410,12 +445,11 @@ private fun OverviewTab(
 
             if (filtered.all { it.abnormalCount == 0 }) {
                 item {
-                    Card(
-                        Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    top.yukonga.miuix.kmp.basic.Card(
+                        Modifier.fillMaxWidth()
                     ) {
                         Text("✓ 所有课程出勤良好", Modifier.padding(16.dp),
-                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -433,26 +467,25 @@ private fun OverviewTab(
 @Composable
 private fun CourseStatCard(stat: CourseAttendanceStat) {
     val hasIssue = stat.abnormalCount > 0
-    Card(
-        Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
-        colors = if (hasIssue) CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
-        ) else CardDefaults.cardColors()
+    top.yukonga.miuix.kmp.basic.Card(
+        modifier = Modifier.fillMaxWidth(), cornerRadius = 12.dp,
+        colors = if (hasIssue) top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
+        ) else top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors()
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
-                Text(stat.subjectName, style = MaterialTheme.typography.titleSmall,
+                Text(stat.subjectName, style = MiuixTheme.textStyles.body1,
                     fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 val rate = if (stat.total > 0) stat.actualCount * 100 / stat.total else 100
                 val rateColor = when {
-                    rate >= 90 -> MaterialTheme.colorScheme.primary
-                    rate >= 70 -> MaterialTheme.colorScheme.tertiary
-                    else -> MaterialTheme.colorScheme.error
+                    rate >= 90 -> MiuixTheme.colorScheme.primary
+                    rate >= 70 -> MiuixTheme.colorScheme.primaryVariant
+                    else -> MiuixTheme.colorScheme.error
                 }
                 Surface(shape = RoundedCornerShape(6.dp), color = rateColor.copy(alpha = 0.12f)) {
                     Text("${rate}%", Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelMedium, color = rateColor, fontWeight = FontWeight.Bold)
+                        style = MiuixTheme.textStyles.body2, color = rateColor, fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(Modifier.height(6.dp))
@@ -460,27 +493,27 @@ private fun CourseStatCard(stat: CourseAttendanceStat) {
             val rateForBar = if (stat.total > 0) stat.actualCount * 100 / stat.total else 100
             val animatedRate by animateFloatAsState(
                 targetValue = (rateForBar / 100f).coerceIn(0f, 1f),
-                animationSpec = tween(700),
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
                 label = "attendanceBar"
             )
             val barColor = when {
-                rateForBar >= 90 -> MaterialTheme.colorScheme.primary
-                rateForBar >= 70 -> MaterialTheme.colorScheme.tertiary
-                else -> MaterialTheme.colorScheme.error
+                rateForBar >= 90 -> MiuixTheme.colorScheme.primary
+                rateForBar >= 70 -> MiuixTheme.colorScheme.primaryVariant
+                else -> MiuixTheme.colorScheme.error
             }
             LinearProgressIndicator(
-                progress = { animatedRate },
-                modifier = Modifier.fillMaxWidth().height(4.dp),
-                color = barColor,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant
+                progress = animatedRate,
+                modifier = Modifier.fillMaxWidth(),
+                height = 4.dp,
+                colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = barColor, backgroundColor = MiuixTheme.colorScheme.surfaceVariant)
             )
             Spacer(Modifier.height(8.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                StatChip("正常", stat.normalCount, MaterialTheme.colorScheme.primary)
-                StatChip("迟到", stat.lateCount, MaterialTheme.colorScheme.tertiary)
-                StatChip("缺勤", stat.absenceCount, MaterialTheme.colorScheme.error)
-                StatChip("请假", stat.leaveCount, MaterialTheme.colorScheme.onSurfaceVariant)
-                StatChip("总计", stat.total, MaterialTheme.colorScheme.onSurface)
+                StatChip("正常", stat.normalCount, MiuixTheme.colorScheme.primary)
+                StatChip("迟到", stat.lateCount, MiuixTheme.colorScheme.primaryVariant)
+                StatChip("缺勤", stat.absenceCount, MiuixTheme.colorScheme.error)
+                StatChip("请假", stat.leaveCount, MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                StatChip("总计", stat.total, MiuixTheme.colorScheme.onSurface)
             }
         }
     }
@@ -489,11 +522,11 @@ private fun CourseStatCard(stat: CourseAttendanceStat) {
 @Composable
 private fun StatChip(label: String, count: Int, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(count.toString(), style = MaterialTheme.typography.titleSmall,
+        Text(count.toString(), style = MiuixTheme.textStyles.body1,
             fontWeight = FontWeight.Bold,
-            color = if (count > 0) color else MaterialTheme.colorScheme.outlineVariant)
-        Text(label, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+            color = if (count > 0) color else MiuixTheme.colorScheme.outline)
+        Text(label, style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 
@@ -508,19 +541,20 @@ private fun RecordFlowTab(
     onStatusChange: (WaterType?) -> Unit
 ) {
     LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
         // 搜索框
         item {
-            OutlinedTextField(
+            TextField(
                 value = searchQuery,
                 onValueChange = onSearchChange,
-                placeholder = { Text("搜索课程、教室、教师...") },
+                label = "搜索课程、教室、教师...",
+                useLabelAsPlaceholder = true,
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, null) },
+                leadingIcon = { Icon(Icons.Default.Search, null, Modifier.padding(start = 4.dp).size(20.dp)) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) IconButton(onClick = { onSearchChange("") }) {
                         Icon(Icons.Default.Clear, null)
@@ -550,17 +584,17 @@ private fun RecordFlowTab(
 
         item {
             Text("${filteredRecords.size} 条记录",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
 
         // 按日期分组
         val groupedByDate = filteredRecords.groupBy { it.date }
         groupedByDate.forEach { (date, dayRecords) ->
             item(key = "header_$date") {
-                Text(date, style = MaterialTheme.typography.labelMedium,
+                Text(date, style = MiuixTheme.textStyles.body2,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MiuixTheme.colorScheme.primary,
                     modifier = Modifier.padding(top = 4.dp))
             }
             itemsIndexed(dayRecords, key = { idx, it -> "${it.date}_${it.startTime}_${it.courseName}_${it.sbh}_$idx" }) { _, record ->
@@ -581,11 +615,11 @@ private fun RecordFlowTab(
 
 @Composable
 private fun StatCard(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
-    Card(modifier = modifier) {
+    top.yukonga.miuix.kmp.basic.Card(modifier = modifier) {
         Column(Modifier.fillMaxWidth().padding(vertical = 10.dp, horizontal = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MaterialTheme.typography.titleLarge, color = color, fontWeight = FontWeight.Bold)
-            Text(label, style = MaterialTheme.typography.labelSmall)
+            Text(value, style = MiuixTheme.textStyles.title4, color = color, fontWeight = FontWeight.Bold)
+            Text(label, style = MiuixTheme.textStyles.footnote1)
         }
     }
 }
@@ -593,35 +627,35 @@ private fun StatCard(label: String, value: String, color: Color, modifier: Modif
 @Composable
 private fun AttendanceRecordCard(record: AttendanceWaterRecord) {
     val statusColor = when (record.status) {
-        WaterType.NORMAL -> MaterialTheme.colorScheme.primary
-        WaterType.LATE -> MaterialTheme.colorScheme.tertiary
-        WaterType.ABSENCE -> MaterialTheme.colorScheme.error
-        WaterType.LEAVE -> MaterialTheme.colorScheme.onSurfaceVariant
+        WaterType.NORMAL -> MiuixTheme.colorScheme.primary
+        WaterType.LATE -> MiuixTheme.colorScheme.primaryVariant
+        WaterType.ABSENCE -> MiuixTheme.colorScheme.error
+        WaterType.LEAVE -> MiuixTheme.colorScheme.onSurfaceVariantSummary
     }
-    Card(Modifier.fillMaxWidth()) {
+    top.yukonga.miuix.kmp.basic.Card(Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(record.courseName.ifEmpty { record.location },
-                    style = MaterialTheme.typography.titleSmall)
+                    style = MiuixTheme.textStyles.body1)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (record.courseName.isNotEmpty()) {
-                        Text(record.location, style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(record.location, style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                     Text("第${record.week}周 · 第${record.startTime}-${record.endTime}节",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
                 if (record.teacher.isNotEmpty()) {
-                    Text(record.teacher, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(record.teacher, style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
             Surface(shape = RoundedCornerShape(6.dp), color = statusColor.copy(alpha = 0.12f)) {
                 Text(record.status.displayName, Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                    style = MaterialTheme.typography.labelSmall, color = statusColor, fontWeight = FontWeight.Bold)
+                    style = MiuixTheme.textStyles.footnote1, color = statusColor, fontWeight = FontWeight.Bold)
             }
         }
     }

@@ -1,12 +1,34 @@
 package com.xjtu.toolbox.jwapp
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.SinkFeedback
+
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,6 +41,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Calculate
@@ -31,7 +54,11 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material3.*
+import top.yukonga.miuix.kmp.extra.SuperSpinner
+import top.yukonga.miuix.kmp.basic.SpinnerEntry
+import top.yukonga.miuix.kmp.basic.SnackbarDuration
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -43,6 +70,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -63,7 +91,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JwappScoreScreen(
     login: JwappLogin?,
@@ -92,7 +119,7 @@ fun JwappScoreScreen(
     // GPA 选课计算模式
     var gpaSelectMode by rememberSaveable { mutableStateOf(false) }
     var selectedCourseIds by rememberSaveable { mutableStateOf<Set<String>>(emptySet()) }
-    var showGpaTips by remember { mutableStateOf(false) }
+    val showGpaTips = remember { mutableStateOf(false) }
 
     // 搜索 & 过滤
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -375,16 +402,14 @@ fun JwappScoreScreen(
         } else null
     }
 
-    // GPA 映射表弹窗
-    if (showGpaTips) {
-        GpaMappingDialog(onDismiss = { showGpaTips = false })
-    }
-
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(if (gpaSelectMode) "选课算 GPA" else "成绩查询") },
+                title = if (gpaSelectMode) "选课算 GPA" else "成绩查询",
+                largeTitle = if (gpaSelectMode) "选课算 GPA" else "成绩查询",
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = {
                         if (gpaSelectMode) { gpaSelectMode = false; selectedCourseIds = emptySet() }
@@ -398,7 +423,7 @@ fun JwappScoreScreen(
                 },
                 actions = {
                     // GPA 映射表
-                    IconButton(onClick = { showGpaTips = true }) {
+                    IconButton(onClick = { showGpaTips.value = true }) {
                         Icon(Icons.Default.Info, contentDescription = "GPA 映射")
                     }
                     // 选课算 GPA 切换
@@ -424,6 +449,9 @@ fun JwappScoreScreen(
             )
         }
     ) { padding ->
+        // GPA 映射表弹窗
+        GpaMappingDialog(show = showGpaTips)
+
         when {
             isLoading -> {
                 LoadingState(message = "正在加载成绩数据...", modifier = Modifier.fillMaxSize().padding(padding))
@@ -442,12 +470,12 @@ fun JwappScoreScreen(
                     // 后台刷新时的细进度条
                     AnimatedVisibility(visible = isRefreshing) {
                         LinearProgressIndicator(
-                            modifier = Modifier.fillMaxWidth().height(2.dp),
-                            color = MaterialTheme.colorScheme.primary
+                            modifier = Modifier.fillMaxWidth(),
+                            height = 2.dp
                         )
                     }
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        modifier = Modifier.fillMaxSize().nestedScroll(scrollBehavior.nestedScrollConnection).overScrollVertical().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     contentPadding = PaddingValues(vertical = 8.dp)
                 ) {
@@ -471,12 +499,11 @@ fun JwappScoreScreen(
                     // 培养方案匹配提示条（显示在成绩概览下方、分类绩点上方）
                     if (planHint != null) {
                         item {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (planHintIsError)
-                                        MaterialTheme.colorScheme.errorContainer
+                            top.yukonga.miuix.kmp.basic.Card(
+                                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = if (planHintIsError)
+                                        MiuixTheme.colorScheme.errorContainer
                                     else
-                                        MaterialTheme.colorScheme.secondaryContainer
+                                        MiuixTheme.colorScheme.secondaryContainer
                                 ),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -489,18 +516,18 @@ fun JwappScoreScreen(
                                         if (planHintIsError) Icons.Default.Warning else Icons.Default.CheckCircle,
                                         contentDescription = null,
                                         tint = if (planHintIsError)
-                                            MaterialTheme.colorScheme.onErrorContainer
+                                            MiuixTheme.colorScheme.onErrorContainer
                                         else
-                                            MaterialTheme.colorScheme.onSecondaryContainer,
+                                            MiuixTheme.colorScheme.onSecondaryContainer,
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Text(
                                         planHint!!,
-                                        style = MaterialTheme.typography.bodySmall,
+                                        style = MiuixTheme.textStyles.footnote1,
                                         color = if (planHintIsError)
-                                            MaterialTheme.colorScheme.onErrorContainer
+                                            MiuixTheme.colorScheme.onErrorContainer
                                         else
-                                            MaterialTheme.colorScheme.onSecondaryContainer,
+                                            MiuixTheme.colorScheme.onSecondaryContainer,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
@@ -533,10 +560,11 @@ fun JwappScoreScreen(
 
                     // 搜索框
                     item {
-                        OutlinedTextField(
+                        TextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            label = { Text("搜索课程") },
+                            label = "搜索课程",
+                            useLabelAsPlaceholder = true,
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
                             trailingIcon = {
@@ -555,8 +583,8 @@ fun JwappScoreScreen(
                             if (gpaSelectMode) {
                                 Text(
                                     "筛选类别 → 全选按钮批量勾选",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.tertiary
+                                    style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.primaryVariant
                                 )
                             }
                             @OptIn(ExperimentalLayoutApi::class)
@@ -604,15 +632,15 @@ fun JwappScoreScreen(
                     if (filteredScores.isEmpty()) {
                         item {
                             Box(Modifier.fillMaxWidth().padding(vertical = 32.dp), contentAlignment = Alignment.Center) {
-                                Text("暂无成绩数据", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("暂无成绩数据", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                             }
                         }
                     } else {
                         // 报表补充提示
                         if (reportHint != null) {
                             item {
-                                Card(
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                                top.yukonga.miuix.kmp.basic.Card(
+                                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
@@ -620,8 +648,8 @@ fun JwappScoreScreen(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.onTertiaryContainer, modifier = Modifier.size(18.dp))
-                                        Text(reportHint!!, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                                        Icon(Icons.Default.Info, null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.size(18.dp))
+                                        Text(reportHint!!, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                                     }
                                 }
                             }
@@ -693,7 +721,7 @@ fun JwappScoreScreen(
 private fun AnimatedNumber(value: Double, precision: Int, style: androidx.compose.ui.text.TextStyle, color: androidx.compose.ui.graphics.Color, fontWeight: FontWeight = FontWeight.Bold) {
     val animatedValue by animateFloatAsState(
         targetValue = value.toFloat(),
-        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
         label = "gpaNum"
     )
     Text(
@@ -710,16 +738,16 @@ private fun GpaRingIndicator(gpa: Double, modifier: Modifier = Modifier) {
     val maxGpa = 4.3
     val animatedProgress by animateFloatAsState(
         targetValue = (gpa / maxGpa).toFloat().coerceIn(0f, 1f),
-        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
         label = "gpaRing"
     )
     val ringColor = when {
-        gpa >= 4.0 -> androidx.compose.ui.graphics.Color(0xFF4CAF50)
-        gpa >= 3.0 -> androidx.compose.ui.graphics.Color(0xFF2196F3)
-        gpa >= 2.0 -> androidx.compose.ui.graphics.Color(0xFFFF9800)
-        else -> androidx.compose.ui.graphics.Color(0xFFF44336)
+        gpa >= 4.0 -> MiuixTheme.colorScheme.primary
+        gpa >= 3.0 -> MiuixTheme.colorScheme.primaryVariant
+        gpa >= 2.0 -> MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.7f)
+        else -> MiuixTheme.colorScheme.error
     }
-    val trackColor = androidx.compose.ui.graphics.Color.LightGray.copy(alpha = 0.3f)
+    val trackColor = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f)
     val gpaFormatted = "%.2f".format(gpa)
     Canvas(modifier = modifier.semantics { contentDescription = "GPA $gpaFormatted" }) {
         val stroke = 8.dp.toPx()
@@ -741,21 +769,22 @@ private fun GpaRingIndicator(gpa: Double, modifier: Modifier = Modifier) {
 @Composable
 fun GpaCard(gpaInfo: GpaInfo?, termName: String, totalCourses: Int, totalCredits: Double, isSelectMode: Boolean, precision: Int = 2, onPrecisionToggle: () -> Unit = {}) {
     val containerColor by androidx.compose.animation.animateColorAsState(
-        if (isSelectMode) MaterialTheme.colorScheme.tertiaryContainer
-        else MaterialTheme.colorScheme.primaryContainer,
+        if (isSelectMode) MiuixTheme.colorScheme.secondaryContainer
+        else MiuixTheme.colorScheme.surfaceVariant,
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
         label = "gpaCardBg"
     )
     val textColor by androidx.compose.animation.animateColorAsState(
-        if (isSelectMode) MaterialTheme.colorScheme.onTertiaryContainer
-        else MaterialTheme.colorScheme.onPrimaryContainer,
+        if (isSelectMode) MiuixTheme.colorScheme.onSecondaryContainer
+        else MiuixTheme.colorScheme.onSurface,
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
         label = "gpaCardText"
     )
     val accentColor = textColor.copy(alpha = 0.12f)
 
-    Card(
+    top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = containerColor)
     ) {
         Column(Modifier.fillMaxWidth().padding(20.dp)) {
             // 标题行
@@ -766,7 +795,7 @@ fun GpaCard(gpaInfo: GpaInfo?, termName: String, totalCourses: Int, totalCredits
             ) {
                 Text(
                     if (isSelectMode) "选课均分" else "成绩概览",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MiuixTheme.textStyles.subtitle,
                     fontWeight = FontWeight.Bold,
                     color = textColor
                 )
@@ -784,7 +813,7 @@ fun GpaCard(gpaInfo: GpaInfo?, termName: String, totalCourses: Int, totalCredits
                         Text(
                             chipText,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MiuixTheme.textStyles.footnote1,
                             color = textColor.copy(alpha = 0.7f),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -795,11 +824,14 @@ fun GpaCard(gpaInfo: GpaInfo?, termName: String, totalCourses: Int, totalCredits
 
             Spacer(Modifier.height(16.dp))
 
-            // 4 列数据（GPA + 均分 + 课程 + 学分）
+            // 4 列统计 — GPA / 均分 / 课程 / 学分
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable { onPrecisionToggle() },
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = top.yukonga.miuix.kmp.utils.SinkFeedback()
+                    ) { onPrecisionToggle() },
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 GpaStatColumn(
@@ -848,10 +880,10 @@ private fun GpaStatColumn(
     ) {
         // 根据数字长度自适应字号，避免溢出遮盖
         val textStyle = when {
-            value.length >= 7 -> MaterialTheme.typography.bodyMedium      // 83.4567
-            value.length >= 6 -> MaterialTheme.typography.bodyLarge       // 3.1579
-            value.length >= 5 -> MaterialTheme.typography.titleMedium    // 3.158
-            else -> MaterialTheme.typography.titleLarge                   // 3.16
+            value.length >= 7 -> MiuixTheme.textStyles.body2      // 83.4567
+            value.length >= 6 -> MiuixTheme.textStyles.body1       // 3.1579
+            value.length >= 5 -> MiuixTheme.textStyles.subtitle    // 3.158
+            else -> MiuixTheme.textStyles.title4                   // 3.16
         }
         Text(
             value,
@@ -864,7 +896,7 @@ private fun GpaStatColumn(
         Spacer(Modifier.height(2.dp))
         Text(
             label,
-            style = MaterialTheme.typography.labelSmall,
+            style = MiuixTheme.textStyles.footnote1,
             color = textColor.copy(alpha = 0.5f),
             maxLines = 1,
             letterSpacing = 0.5.sp
@@ -872,27 +904,20 @@ private fun GpaStatColumn(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TermSelector(termList: List<Pair<String, String>>, selectedIndex: Int, onSelect: (Int) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    val selectedTerm = termList.getOrNull(selectedIndex)
-
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
-        OutlinedTextField(
-            value = selectedTerm?.second ?: "选择学期",
-            onValueChange = {},
-            readOnly = true,
-            label = { Text("学期") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.fillMaxWidth().menuAnchor(),
-            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors()
+    val items = remember(termList) { termList.map { (_, name) -> SpinnerEntry(title = name) } }
+    top.yukonga.miuix.kmp.basic.Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 16.dp
+    ) {
+        SuperSpinner(
+            items = items,
+            selectedIndex = selectedIndex,
+            title = "学期",
+            onSelectedIndexChange = onSelect,
+            modifier = Modifier.fillMaxWidth()
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            termList.forEachIndexed { index, (_, name) ->
-                DropdownMenuItem(text = { Text(name) }, onClick = { onSelect(index); expanded = false }, contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding)
-            }
-        }
     }
 }
 
@@ -909,9 +934,12 @@ fun ScoreCard(
     onToggle: () -> Unit
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)).clickable { onToggle() },
-        colors = if (isFromReport) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
-                 else CardDefaults.cardColors()
+        modifier = Modifier.fillMaxWidth().animateContentSize(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)),
+        onClick = onToggle,
+        cornerRadius = 16.dp,
+        pressFeedbackType = PressFeedbackType.Sink,
+        colors = if (isFromReport) CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+                 else CardDefaults.defaultColors()
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -920,45 +948,45 @@ fun ScoreCard(
                     Icon(
                         if (isSelected) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
                         contentDescription = null,
-                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (isSelected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(Modifier.width(8.dp))
                 }
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(scoreItem.courseName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        Text(scoreItem.courseName, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                         if (isFromReport) {
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.tertiary,
-                                contentColor = MaterialTheme.colorScheme.onTertiary
+                                color = MiuixTheme.colorScheme.primaryVariant,
+                                contentColor = MiuixTheme.colorScheme.onPrimaryVariant
                             ) {
-                                Text("报表", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                Text("报表", style = MiuixTheme.textStyles.footnote1, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
                             }
                         }
                         if (isUnevaluated) {
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.error,
-                                contentColor = MaterialTheme.colorScheme.onError
+                                color = MiuixTheme.colorScheme.error,
+                                contentColor = MiuixTheme.colorScheme.onError
                             ) {
-                                Text("未评教", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                Text("未评教", style = MiuixTheme.textStyles.footnote1, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
                             }
                         }
                     }
                     Spacer(Modifier.height(4.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("${scoreItem.coursePoint}学分", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("${scoreItem.coursePoint}学分", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         // 课程分组 badge
                         val group = scoreItem.courseGroup
                         if (group != null && group != CourseGroup.OUT_OF_PLAN) {
                             val groupColor = when (group) {
-                                CourseGroup.CORE -> MaterialTheme.colorScheme.primary
-                                CourseGroup.GEN_CORE -> MaterialTheme.colorScheme.tertiary
-                                CourseGroup.GEN_ELECTIVE -> MaterialTheme.colorScheme.secondary
-                                CourseGroup.MAJOR_ELECTIVE -> MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
-                                CourseGroup.OUT_OF_PLAN -> MaterialTheme.colorScheme.onSurfaceVariant
+                                CourseGroup.CORE -> MiuixTheme.colorScheme.primary
+                                CourseGroup.GEN_CORE -> MiuixTheme.colorScheme.primaryVariant
+                                CourseGroup.GEN_ELECTIVE -> MiuixTheme.colorScheme.secondary
+                                CourseGroup.MAJOR_ELECTIVE -> MiuixTheme.colorScheme.error.copy(alpha = 0.8f)
+                                CourseGroup.OUT_OF_PLAN -> MiuixTheme.colorScheme.onSurfaceVariantSummary
                             }
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
@@ -966,7 +994,7 @@ fun ScoreCard(
                             ) {
                                 Text(
                                     group.shortLabel,
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MiuixTheme.textStyles.footnote1,
                                     color = groupColor,
                                     fontWeight = FontWeight.Medium,
                                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
@@ -974,24 +1002,24 @@ fun ScoreCard(
                             }
                         } else if (!scoreItem.majorFlag.isNullOrBlank()) {
                             val flagColor = when (scoreItem.majorFlag) {
-                                "必修" -> MaterialTheme.colorScheme.primary
-                                "选修" -> MaterialTheme.colorScheme.tertiary
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                "必修" -> MiuixTheme.colorScheme.primary
+                                "选修" -> MiuixTheme.colorScheme.primaryVariant
+                                else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
                             }
-                            Text(scoreItem.majorFlag, style = MaterialTheme.typography.bodySmall, color = flagColor, fontWeight = FontWeight.Medium)
+                            Text(scoreItem.majorFlag, style = MiuixTheme.textStyles.footnote1, color = flagColor, fontWeight = FontWeight.Medium)
                         }
                         if (scoreItem.examProp.isNotEmpty() && scoreItem.examProp != "初修") {
-                            Text(scoreItem.examProp, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                            Text(scoreItem.examProp, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error)
                         }
                         if (scoreItem.examType.isNotEmpty()) {
-                            Text(scoreItem.examType, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(scoreItem.examType, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                         // 显示课程 GPA（服务器返回>0时使用，否则本地映射）
                         val courseGpa = (scoreItem.gpa?.takeIf { it > 0.0 })
                             ?: com.xjtu.toolbox.score.ScoreReportApi.scoreToGpa(scoreItem.score)
                         if (courseGpa != null) {
-                            Text("GPA %.1f".format(courseGpa), style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                            Text("GPA %.1f".format(courseGpa), style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -1003,16 +1031,16 @@ fun ScoreCard(
                             || (localGpa != null && localGpa > 0.0)
                             || (scoreItem.scoreValue != null && scoreItem.scoreValue >= 60.0)
                     val scoreColor = when {
-                        !reallyPassed -> MaterialTheme.colorScheme.error
-                        scoreItem.scoreValue != null && scoreItem.scoreValue >= 90 -> MaterialTheme.colorScheme.primary
-                        scoreItem.scoreValue != null && scoreItem.scoreValue >= 80 -> MaterialTheme.colorScheme.tertiary
-                        scoreItem.scoreValue == null && reallyPassed -> MaterialTheme.colorScheme.primary // 等级制通过
-                        else -> MaterialTheme.colorScheme.onSurface
+                        !reallyPassed -> MiuixTheme.colorScheme.error
+                        scoreItem.scoreValue != null && scoreItem.scoreValue >= 90 -> MiuixTheme.colorScheme.primary
+                        scoreItem.scoreValue != null && scoreItem.scoreValue >= 80 -> MiuixTheme.colorScheme.primaryVariant
+                        scoreItem.scoreValue == null && reallyPassed -> MiuixTheme.colorScheme.primary // 等级制通过
+                        else -> MiuixTheme.colorScheme.onSurface
                     }
-                    Text(scoreItem.score, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = scoreColor)
+                    Text(scoreItem.score, style = MiuixTheme.textStyles.headline1, fontWeight = FontWeight.Bold, color = scoreColor)
                     // 等级制显示精确分数（scoreValue 由 CjcxApi ZCJ 填充）
                     if (!reallyPassed) {
-                        Text(scoreItem.specificReason ?: "未通过", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                        Text(scoreItem.specificReason ?: "未通过", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error)
                     }
                 }
                 if (!showCheckbox && !isFromReport) {
@@ -1032,10 +1060,14 @@ fun ScoreCard(
                     Spacer(Modifier.height(12.dp))
                     if (isDetailLoading) {
                         Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator(Modifier.size(24.dp))
+                            CircularProgressIndicator(size = 24.dp)
                         }
                     } else if (detail != null) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             DetailChip("绩点", "%.1f".format(detail.gpa))
                             DetailChip("学分", "%.1f".format(detail.coursePoint))
                             DetailChip("类型", detail.examType)
@@ -1043,12 +1075,12 @@ fun ScoreCard(
                         }
                         if (detail.itemList.isNotEmpty()) {
                             Spacer(Modifier.height(12.dp))
-                            Text("分项成绩", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                            Text("分项成绩", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
                             Spacer(Modifier.height(8.dp))
                             detail.itemList.forEach { item -> ScoreDetailRow(item) }
                         }
                     } else {
-                        Text("无法加载详细成绩", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        Text("无法加载详细成绩", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error)
                     }
                 }
             }
@@ -1059,42 +1091,53 @@ fun ScoreCard(
 @Composable
 fun ScoreDetailRow(item: ScoreDetailItem) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(item.itemName, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Text("%.0f%%".format(item.itemPercent * 100), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(48.dp))
+        Text(item.itemName, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
+        Text("%.0f%%".format(item.itemPercent * 100), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.width(48.dp))
         if (item.itemScoreValue != null) {
             LinearProgressIndicator(
-                progress = { (item.itemScoreValue / 100.0).toFloat().coerceIn(0f, 1f) },
-                modifier = Modifier.weight(1f).height(8.dp).padding(horizontal = 8.dp),
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                progress = (item.itemScoreValue / 100.0).toFloat().coerceIn(0f, 1f),
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                height = 8.dp,
+                colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                    backgroundColor = MiuixTheme.colorScheme.surfaceVariant
+                ),
             )
         } else {
             Spacer(Modifier.weight(1f))
         }
-        Text(item.itemScore, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+        Text(item.itemScore, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
     }
 }
 
 @Composable
 fun DetailChip(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Text(value, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary)
+            Text(label, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        }
     }
 }
 
 @Composable
-fun GpaMappingDialog(onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = { TextButton(onClick = onDismiss) { Text("知道了") } },
-        title = { Text("GPA 映射规则", fontWeight = FontWeight.Bold) },
-        text = {
+fun GpaMappingDialog(show: MutableState<Boolean>) {
+    SuperBottomSheet(
+        show = show,
+        title = "GPA 映射规则",
+        onDismissRequest = { show.value = false }
+    ) {
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier.overScrollVertical().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text("数字成绩 → GPA（4.3 绩点制）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Text("依据：西交教〔2015〕87号 及 本科生学籍管理与学位授予规定（2017）", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("数字成绩 → GPA（4.3 绩点制）", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
+                Text("依据：西交教〔2015〕87号 及 本科生学籍管理与学位授予规定（2017）", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 val numericRules = listOf(
                     "95-100" to "4.3", "90-94" to "4.0", "85-89" to "3.7",
                     "81-84" to "3.3", "78-80" to "3.0", "75-77" to "2.7",
@@ -1103,12 +1146,12 @@ fun GpaMappingDialog(onDismiss: () -> Unit) {
                 )
                 numericRules.forEach { (range, gpa) ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(range, style = MaterialTheme.typography.bodySmall)
-                        Text(gpa, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                        Text(range, style = MiuixTheme.textStyles.footnote1)
+                        Text(gpa, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
                     }
                 }
                 Spacer(Modifier.height(8.dp))
-                Text("等级制（11级，英文/中文）", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text("等级制（11级，英文/中文）", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold)
                 val gradeRules = listOf(
                     Triple("A+ / 优+", "98", "4.3"),
                     Triple("A  / 优", "92", "4.0"),
@@ -1123,30 +1166,38 @@ fun GpaMappingDialog(onDismiss: () -> Unit) {
                     Triple("F  / 不及格", "0", "0.0")
                 )
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("等级", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Text("分数", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                    Text("GPA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                    Text("等级", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Text("分数", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                    Text("GPA", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
                 }
                 gradeRules.forEach { (grade, score, gpa) ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(grade, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                        Text(score, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-                        Text(gpa, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                        Text(grade, style = MiuixTheme.textStyles.footnote1, modifier = Modifier.weight(1f))
+                        Text(score, style = MiuixTheme.textStyles.footnote1, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                        Text(gpa, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
                     }
                 }
                 Spacer(Modifier.height(8.dp))
                 Text("GPA = Σ(课程GPA × 学分) / Σ学分",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Text("二等级制（通过/不通过）不参与 GPA 计算",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Text("优先使用 xscjcx.do 精确成绩（ZCJ/XFJD）",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = { show.value = false },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("知道了")
         }
-    )
+        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+    }
 }
 
 /** 报表成绩转 ScoreItem */
@@ -1188,9 +1239,11 @@ fun CategoryGpaBreakdown(
 
     if (groupedGpa.isEmpty()) return
 
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+    top.yukonga.miuix.kmp.basic.Card(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = { expanded = !expanded },
+        pressFeedbackType = PressFeedbackType.Sink,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(
@@ -1200,21 +1253,21 @@ fun CategoryGpaBreakdown(
             ) {
                 Text(
                     "分类别绩点",
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MiuixTheme.textStyles.body1,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MiuixTheme.colorScheme.onSurface
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         "${groupedGpa.size} 个类别",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
                     Icon(
                         if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                         contentDescription = null,
                         modifier = Modifier.size(20.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
                 }
             }
@@ -1230,8 +1283,8 @@ fun CategoryGpaBreakdown(
                     groupedGpa.forEach { (group, gpa, _) ->
                         Text(
                             "${group.shortLabel} %.${precision}f".format(gpa.gpa),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.primary,
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.primary,
                             fontWeight = FontWeight.Medium
                         )
                     }
@@ -1247,20 +1300,20 @@ fun CategoryGpaBreakdown(
                 Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     // 表头
                     Row(Modifier.fillMaxWidth()) {
-                        Text("类别", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("GPA", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("均分", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("学分", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(48.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("门数", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp), textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("类别", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Text("GPA", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Text("均分", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Text("学分", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.width(48.dp), textAlign = TextAlign.End, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Text("门数", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp), textAlign = TextAlign.End, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    HorizontalDivider(color = MiuixTheme.colorScheme.outline)
                     groupedGpa.forEach { (group, gpa, count) ->
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(group.label, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                            Text("%.${precision}f".format(gpa.gpa), style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            Text(if (gpa.averageScore > 0) "%.${precision}f".format(gpa.averageScore) else "—", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(56.dp), textAlign = TextAlign.End)
-                            Text("%.1f".format(gpa.totalCredits), style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(48.dp), textAlign = TextAlign.End)
-                            Text("$count", style = MaterialTheme.typography.bodySmall, modifier = Modifier.width(36.dp), textAlign = TextAlign.End)
+                            Text(group.label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            Text("%.${precision}f".format(gpa.gpa), style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(56.dp), textAlign = TextAlign.End, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary)
+                            Text(if (gpa.averageScore > 0) "%.${precision}f".format(gpa.averageScore) else "—", style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(56.dp), textAlign = TextAlign.End)
+                            Text("%.1f".format(gpa.totalCredits), style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(48.dp), textAlign = TextAlign.End)
+                            Text("$count", style = MiuixTheme.textStyles.footnote1, modifier = Modifier.width(36.dp), textAlign = TextAlign.End)
                         }
                     }
                 }

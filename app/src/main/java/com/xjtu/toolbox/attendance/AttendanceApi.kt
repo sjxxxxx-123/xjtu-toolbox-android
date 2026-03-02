@@ -1,6 +1,7 @@
 package com.xjtu.toolbox.attendance
 
 import android.util.Log
+import com.google.gson.JsonElement
 import com.xjtu.toolbox.auth.AttendanceLogin
 import com.xjtu.toolbox.util.safeParseJsonObject
 import okhttp3.MediaType.Companion.toMediaType
@@ -97,6 +98,14 @@ data class CourseAttendanceStat(
     val abnormalCount: Int get() = lateCount + absenceCount
 }
 
+/** JsonElement 安全取 String（处理 JsonNull / 非字符串类型） */
+private val JsonElement?.safeStr: String
+    get() = if (this == null || this.isJsonNull) "" else try { asString } catch (_: Exception) { "" }
+
+/** JsonElement 安全取 Int（处理 JsonNull / 非数字类型） */
+private val JsonElement?.safeInt: Int
+    get() = if (this == null || this.isJsonNull) 0 else try { asInt } catch (_: Exception) { 0 }
+
 /**
  * 考勤 API 封装
  */
@@ -118,10 +127,11 @@ class AttendanceApi(private val login: AttendanceLogin) {
         val url = "$baseUrl$path"
         val body = jsonBody?.toRequestBody(jsonType) ?: "".toRequestBody(null)
         val request = login.authenticatedRequest(url).post(body)
-        val response = login.executeWithReAuth(request)
-        val result = response.body?.string() ?: ""
-        Log.d(TAG, "POST $path → ${response.code}, len=${result.length}")
-        return result
+        return login.executeWithReAuth(request).use { response ->
+            val result = response.body?.string() ?: ""
+            Log.d(TAG, "POST $path → ${response.code}, len=${result.length}")
+            result
+        }
     }
 
     /**
@@ -139,11 +149,11 @@ class AttendanceApi(private val login: AttendanceLogin) {
         val data = dataEl.asJsonObject
 
         return mapOf(
-            "name" to (data.get("name")?.asString ?: ""),
-            "sno" to (data.get("sno")?.asString ?: data.get("account")?.asString ?: ""),
-            "identity" to (data.get("identity")?.asString ?: ""),
-            "campusName" to (data.get("campusName")?.asString ?: ""),
-            "departmentName" to (data.get("departmentName")?.asString ?: "")
+            "name" to data.get("name").safeStr,
+            "sno" to data.get("sno").safeStr.ifEmpty { data.get("account").safeStr },
+            "identity" to data.get("identity").safeStr,
+            "campusName" to data.get("campusName").safeStr,
+            "departmentName" to data.get("departmentName").safeStr
         )
     }
 
@@ -157,9 +167,11 @@ class AttendanceApi(private val login: AttendanceLogin) {
         val dataEl = json.get("data")
         val data = if (dataEl != null && dataEl.isJsonObject) dataEl.asJsonObject
             else throw RuntimeException("getNearTerm: data 为空, response=$result")
-        return data.get("bh")?.asString
-            ?: data.get("bh")?.toString()
-            ?: throw RuntimeException("getNearTerm: bh 字段缺失, data=$data")
+        return data.get("bh").safeStr.ifEmpty {
+            data.get("bh")?.toString() ?: ""
+        }.ifEmpty {
+            throw RuntimeException("getNearTerm: bh 字段缺失, data=$data")
+        }
     }
 
     /**
@@ -176,14 +188,14 @@ class AttendanceApi(private val login: AttendanceLogin) {
         return data.map { item ->
             val obj = item.asJsonObject
             TermInfo(
-                bh = obj.get("bh")?.asString ?: "",
-                name = obj.get("name")?.asString ?: "",
-                startDate = obj.get("startDate")?.asString
-                    ?: obj.get("kssj")?.asString
-                    ?: obj.get("startTime")?.asString ?: "",
-                endDate = obj.get("endDate")?.asString
-                    ?: obj.get("jssj")?.asString
-                    ?: obj.get("endTime")?.asString ?: ""
+                bh = obj.get("bh").safeStr,
+                name = obj.get("name").safeStr,
+                startDate = obj.get("startDate").safeStr
+                    .ifEmpty { obj.get("kssj").safeStr }
+                    .ifEmpty { obj.get("startTime").safeStr },
+                endDate = obj.get("endDate").safeStr
+                    .ifEmpty { obj.get("jssj").safeStr }
+                    .ifEmpty { obj.get("endTime").safeStr }
             )
         }
     }
@@ -207,10 +219,10 @@ class AttendanceApi(private val login: AttendanceLogin) {
         return list.map { item ->
             val obj = item.asJsonObject
             AttendanceFlow(
-                sbh = obj.get("sBh")?.asString ?: "",
-                place = obj.get("eqno")?.asString ?: "",
-                waterTime = obj.get("watertime")?.asString ?: "",
-                type = FlowRecordType.fromValue(obj.get("isdone")?.asInt ?: 0)
+                sbh = obj.get("sBh").safeStr,
+                place = obj.get("eqno").safeStr,
+                waterTime = obj.get("watertime").safeStr,
+                type = FlowRecordType.fromValue(obj.get("isdone").safeInt)
             )
         }
     }
@@ -233,10 +245,10 @@ class AttendanceApi(private val login: AttendanceLogin) {
         return list.map { item ->
             val obj = item.asJsonObject
             AttendanceFlow(
-                sbh = obj.get("sBh")?.asString ?: "",
-                place = obj.get("eqno")?.asString ?: "",
-                waterTime = obj.get("watertime")?.asString ?: "",
-                type = FlowRecordType.fromValue(obj.get("isdone")?.asInt ?: 0)
+                sbh = obj.get("sBh").safeStr,
+                place = obj.get("eqno").safeStr,
+                waterTime = obj.get("watertime").safeStr,
+                type = FlowRecordType.fromValue(obj.get("isdone").safeInt)
             )
         }
     }
@@ -270,17 +282,17 @@ class AttendanceApi(private val login: AttendanceLogin) {
             val subject = obj.get("subjectBean")?.takeIf { it.isJsonObject }?.asJsonObject
 
             AttendanceWaterRecord(
-                sbh = classWater?.get("bh")?.asString ?: "",
-                termString = calendar?.get("name")?.asString ?: "",
-                startTime = account?.get("startJc")?.asInt ?: 0,
-                endTime = account?.get("endJc")?.asInt ?: 0,
-                week = account?.get("week")?.asInt ?: 0,
-                location = "${build?.get("name")?.asString ?: ""}-${room?.get("roomnum")?.asString ?: ""}",
-                courseName = subject?.get("sName")?.asString
-                    ?: subject?.get("subjectname")?.asString ?: "",
-                teacher = obj.get("teachNameList")?.asString ?: "",
-                status = WaterType.fromValue(classWater?.get("status")?.asInt ?: 1),
-                date = account?.get("checkdate")?.asString ?: ""
+                sbh = classWater?.get("bh").safeStr,
+                termString = calendar?.get("name").safeStr,
+                startTime = account?.get("startJc").safeInt,
+                endTime = account?.get("endJc").safeInt,
+                week = account?.get("week").safeInt,
+                location = "${build?.get("name").safeStr}-${room?.get("roomnum").safeStr}",
+                courseName = subject?.get("sName").safeStr
+                    .ifEmpty { subject?.get("subjectname").safeStr },
+                teacher = obj.get("teachNameList").safeStr,
+                status = WaterType.fromValue(classWater?.get("status").safeInt.let { if (it == 0) 1 else it }),
+                date = account?.get("checkdate").safeStr
             )
         }
     }
@@ -332,16 +344,17 @@ class AttendanceApi(private val login: AttendanceLogin) {
         val data = dataEl.asJsonArray
         return data.mapNotNull { item ->
             val obj = item.asJsonObject
-            val name = obj.get("subjectname")?.asString ?: return@mapNotNull null
+            val name = obj.get("subjectname").safeStr
+            if (name.isEmpty()) return@mapNotNull null
             CourseAttendanceStat(
                 subjectName = name,
-                subjectCode = obj.get("subjectCode")?.asString ?: "",
-                normalCount = obj.get("normalCount")?.asInt ?: 0,
-                lateCount = obj.get("lateCount")?.asInt ?: 0,
-                absenceCount = obj.get("absenceCount")?.asInt ?: 0,
-                leaveEarlyCount = obj.get("leaveEarlyCount")?.asInt ?: 0,
-                leaveCount = obj.get("leaveCount")?.asInt ?: 0,
-                total = obj.get("total")?.asInt ?: 0
+                subjectCode = obj.get("subjectCode").safeStr,
+                normalCount = obj.get("normalCount").safeInt,
+                lateCount = obj.get("lateCount").safeInt,
+                absenceCount = obj.get("absenceCount").safeInt,
+                leaveEarlyCount = obj.get("leaveEarlyCount").safeInt,
+                leaveCount = obj.get("leaveCount").safeInt,
+                total = obj.get("total").safeInt
             )
         }
     }

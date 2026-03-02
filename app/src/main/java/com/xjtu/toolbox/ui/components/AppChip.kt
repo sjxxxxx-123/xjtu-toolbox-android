@@ -1,47 +1,96 @@
 package com.xjtu.toolbox.ui.components
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.SinkFeedback
 
-/** 统一风格的 FilterChip — 选中填充主色，圆角药丸形 */
+/** MIUI 风格 FilterChip — 选中时柔和高亮底色（无硬边框），SinkFeedback 按压 */
 @Composable
 fun AppFilterChip(
     selected: Boolean,
     onClick: () -> Unit,
     label: String,
     modifier: Modifier = Modifier,
-    leadingIcon: @Composable (() -> Unit)? = null
+    leadingIcon: @Composable (() -> Unit)? = null,
+    unselectedContainerColor: Color = MiuixTheme.colorScheme.surfaceVariant
 ) {
-    FilterChip(
-        selected = selected,
-        onClick = onClick,
-        label = {
+    val chipShape = RoundedCornerShape(20.dp)
+    val bgColor = if (selected) MiuixTheme.colorScheme.primary.copy(alpha = 0.15f) else unselectedContainerColor
+    val textColor = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceVariantSummary
+
+    Surface(
+        modifier = modifier
+            .clip(chipShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback()
+            ) { onClick() },
+        shape = chipShape,
+        color = bgColor
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (leadingIcon != null) {
+                leadingIcon()
+                Spacer(Modifier.width(4.dp))
+            }
             Text(
                 label,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+                style = MiuixTheme.textStyles.footnote1,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = textColor
             )
-        },
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = FilterChipDefaults.filterChipColors(
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
-        ),
-        border = FilterChipDefaults.filterChipBorder(
-            enabled = true,
-            selected = selected,
-            borderColor = MaterialTheme.colorScheme.outlineVariant,
-            selectedBorderColor = MaterialTheme.colorScheme.primary,
-        ),
-        leadingIcon = leadingIcon,
-    )
+        }
+    }
+}
+
+/** MIUI 风格 SuggestionChip — 无选中态，柔和背景 + SinkFeedback 按压 */
+@Composable
+fun AppSuggestionChip(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    labelContent: @Composable (() -> Unit)? = null,
+    icon: @Composable (() -> Unit)? = null,
+) {
+    val chipShape = RoundedCornerShape(16.dp)
+    Surface(
+        modifier = modifier
+            .clip(chipShape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback()
+            ) { onClick() },
+        shape = chipShape,
+        color = MiuixTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (icon != null) {
+                icon()
+                Spacer(Modifier.width(4.dp))
+            }
+            if (labelContent != null) labelContent()
+            else if (label != null) Text(label, style = MiuixTheme.textStyles.footnote1)
+        }
+    }
 }

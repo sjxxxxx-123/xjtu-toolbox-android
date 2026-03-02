@@ -1,5 +1,24 @@
 package com.xjtu.toolbox.notification
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -17,7 +36,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Merge
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.*
+import com.xjtu.toolbox.ui.components.AppTopBar
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -29,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.ui.components.AppFilterChip
+import com.xjtu.toolbox.ui.components.AppSuggestionChip
 import com.xjtu.toolbox.ui.components.EmptyState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.LoadingState
@@ -38,7 +58,6 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NotificationScreen(
     onBack: () -> Unit,
@@ -134,10 +153,11 @@ fun NotificationScreen(
         }
     }
 
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
             if (isSearchActive) {
-                TopAppBar(
+                AppTopBar(
                     navigationIcon = {
                         IconButton(onClick = { isSearchActive = false; searchQuery = "" }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -147,37 +167,23 @@ fun NotificationScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(end = 8.dp)
-                                .clip(RoundedCornerShape(24.dp))
-                                .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                .padding(end = 8.dp, top = 4.dp, bottom = 4.dp)
                         ) {
                             TextField(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
-                                placeholder = {
-                                    Text(
-                                        "搜索通知标题...",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                    )
-                                },
+                                label = "搜索通知标题...",
+                                useLabelAsPlaceholder = true,
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
-                                textStyle = MaterialTheme.typography.bodyMedium,
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent,
-                                    cursorColor = MaterialTheme.colorScheme.primary
-                                ),
+                                textStyle = MiuixTheme.textStyles.body2,
                                 trailingIcon = {
                                     if (searchQuery.isNotEmpty()) {
                                         IconButton(onClick = { searchQuery = "" }) {
                                             Icon(
                                                 Icons.Default.Close,
                                                 contentDescription = "清除",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                             )
                                         }
                                     }
@@ -188,7 +194,9 @@ fun NotificationScreen(
                 )
             } else {
                 TopAppBar(
-                    title = { Text("通知公告") },
+                    title = "通知公告",
+                    largeTitle = "通知公告",
+                    scrollBehavior = scrollBehavior,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -205,8 +213,8 @@ fun NotificationScreen(
                             Icon(
                                 Icons.Default.Merge,
                                 contentDescription = if (mergeMode) "取消合并" else "合并模式",
-                                tint = if (mergeMode) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant
+                                tint = if (mergeMode) MiuixTheme.colorScheme.primary
+                                else MiuixTheme.colorScheme.onSurfaceVariantSummary
                             )
                         }
                         IconButton(onClick = { isSearchActive = true }) {
@@ -227,6 +235,7 @@ fun NotificationScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
             // ═══ 分类选择（文本 Tab 样式，轻量级层级感） ═══
             Row(
@@ -249,10 +258,10 @@ fun NotificationScreen(
                     ) {
                         Text(
                             label,
-                            style = MaterialTheme.typography.bodyMedium,
+                            style = MiuixTheme.textStyles.body2,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (isSelected) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             maxLines = 1
                         )
                         Spacer(Modifier.height(4.dp))
@@ -261,7 +270,7 @@ fun NotificationScreen(
                                 .width(if (isSelected) 20.dp else 0.dp)
                                 .height(3.dp)
                                 .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    if (isSelected) MiuixTheme.colorScheme.primary else Color.Transparent,
                                     RoundedCornerShape(1.5.dp)
                                 )
                         )
@@ -273,7 +282,7 @@ fun NotificationScreen(
             HorizontalDivider(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 thickness = 0.5.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                color = MiuixTheme.colorScheme.outline.copy(alpha = 0.5f)
             )
 
             // ═══ 来源选择（Chip 样式） ═══
@@ -321,12 +330,12 @@ fun NotificationScreen(
                         Icons.Default.Merge,
                         contentDescription = null,
                         modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = MiuixTheme.colorScheme.primary
                     )
                     Text(
                         "已选 ${selectedSources.size} 个来源 · 按时间排列",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.primary
                     )
                 }
             }
@@ -359,6 +368,7 @@ fun NotificationScreen(
                         )
                     } else {
                         LazyColumn(
+                            modifier = Modifier.fillMaxSize().overScrollVertical(),
                             state = listState,
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -383,7 +393,7 @@ fun NotificationScreen(
                                         modifier = Modifier.fillMaxWidth().padding(16.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                        CircularProgressIndicator(size = 24.dp)
                                     }
                                 }
                             }
@@ -425,12 +435,12 @@ private fun NotificationCard(
     showSource: Boolean = false,
     onClick: () -> Unit
 ) {
-    Card(
+    top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            .fillMaxWidth(),
+        onClick = onClick,
+        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant
         )
     ) {
         Column(
@@ -439,10 +449,10 @@ private fun NotificationCard(
         ) {
             Text(
                 text = notification.title,
-                style = MaterialTheme.typography.titleSmall,
+                style = MiuixTheme.textStyles.body1,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MiuixTheme.colorScheme.onSurface
             )
 
             Row(
@@ -454,22 +464,22 @@ private fun NotificationCard(
                     // 合并模式下显示来源标签
                     if (showSource) {
                         Surface(
-                            shape = MaterialTheme.shapes.extraSmall,
-                            color = MaterialTheme.colorScheme.primaryContainer
+                            shape = RoundedCornerShape(4.dp),
+                            color = MiuixTheme.colorScheme.primaryContainer
                         ) {
                             Text(
                                 notification.source.displayName,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MiuixTheme.textStyles.footnote1,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = MiuixTheme.colorScheme.onPrimaryContainer
                             )
                         }
                     }
                     notification.tags.forEach { tag ->
-                        AssistChip(
+                        AppSuggestionChip(
                             onClick = {},
-                            label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
+                            label = tag,
                             modifier = Modifier.height(24.dp)
                         )
                     }
@@ -482,14 +492,14 @@ private fun NotificationCard(
                     if (!showSource) {
                         Text(
                             text = notification.source.displayName,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.primary
                         )
                     }
                     Text(
                         text = formatRelativeDate(notification.date),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                     )
                 }
             }

@@ -1,8 +1,26 @@
 package com.xjtu.toolbox.schedule
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
+import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+
 import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,11 +37,17 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Event
-import androidx.compose.material3.*
+import com.xjtu.toolbox.ui.components.AppDropdownMenu
+import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
+import com.xjtu.toolbox.ui.components.AppTopBar
+import top.yukonga.miuix.kmp.basic.SnackbarDuration
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -48,7 +72,6 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () -> Unit) {
     val api = remember(login) { login?.let { ScheduleApi(it) } }
@@ -380,15 +403,20 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
     }
 
     // 自定义课程弹窗
+    val showAddCourseState = remember { mutableStateOf(false) }
+    LaunchedEffect(showAddCourseDialog) { showAddCourseState.value = showAddCourseDialog }
     if (showAddCourseDialog) {
         CustomCourseDialog(
+            show = showAddCourseState,
             termCode = selectedTermCode,
             onSave = ::saveCustomCourse,
             onDismiss = { showAddCourseDialog = false }
         )
     }
     editingCourse?.let { entity ->
+        val showEditCourseState = remember { mutableStateOf(true) }
         CustomCourseDialog(
+            show = showEditCourseState,
             existing = entity,
             termCode = selectedTermCode,
             onSave = ::saveCustomCourse,
@@ -498,23 +526,29 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
+            AppTopBar(
+                color = MiuixTheme.colorScheme.surfaceVariant,
                 title = {
                     // 学期选择下拉
                     Box {
-                        TextButton(onClick = { if (termList.isNotEmpty()) termDropdownExpanded = true }) {
+                        Row(
+                            modifier = Modifier
+                                .clickable { if (termList.isNotEmpty()) termDropdownExpanded = true }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
                                 if (selectedTermCode.isNotEmpty()) selectedTermCode else "课表 · 考试",
-                                style = MaterialTheme.typography.titleMedium,
+                                style = MiuixTheme.textStyles.subtitle,
                                 fontWeight = FontWeight.Bold
                             )
                             if (termList.isNotEmpty()) {
                                 Icon(Icons.Default.ArrowDropDown, null, Modifier.size(20.dp))
                             }
                         }
-                        DropdownMenu(expanded = termDropdownExpanded, onDismissRequest = { termDropdownExpanded = false }) {
+                        AppDropdownMenu(expanded = termDropdownExpanded, onDismissRequest = { termDropdownExpanded = false }, alignment = Alignment.TopStart) {
                             termList.forEach { term ->
-                                DropdownMenuItem(
+                                AppDropdownMenuItem(
                                     text = { Text(term, fontWeight = if (term == selectedTermCode) FontWeight.Bold else FontWeight.Normal) },
                                     onClick = { termDropdownExpanded = false; switchTerm(term) },
                                     leadingIcon = if (term == selectedTermCode) {{ Icon(Icons.Default.CalendarMonth, null, Modifier.size(18.dp)) }} else null
@@ -536,8 +570,8 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
                         IconButton(onClick = { showExportMenu = true }, enabled = mergedCourses.isNotEmpty()) {
                             Icon(Icons.Default.MoreVert, contentDescription = "更多")
                         }
-                        DropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
-                            DropdownMenuItem(
+                        AppDropdownMenu(expanded = showExportMenu, onDismissRequest = { showExportMenu = false }) {
+                            AppDropdownMenuItem(
                                 text = { Text("导出日历 (ICS)") },
                                 leadingIcon = { Icon(Icons.Default.Event, null, Modifier.size(20.dp)) },
                                 onClick = {
@@ -545,13 +579,13 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
                                     val st = startOfTerm
                                     if (st == null) {
                                         scope.launch { snackbarHostState.showSnackbar("无法获取开学日期，ICS 导出不可用") }
-                                        return@DropdownMenuItem
+                                        return@AppDropdownMenuItem
                                     }
                                     val ics = ScheduleExport.generateIcs(mergedCourses, st, selectedTermCode)
                                     ScheduleExport.shareTextFile(context, ics, "${selectedTermCode}_课表.ics", "text/calendar")
                                 }
                             )
-                            DropdownMenuItem(
+                            AppDropdownMenuItem(
                                 text = { Text("导出表格 (CSV)") },
                                 leadingIcon = { Icon(Icons.Default.TableChart, null, Modifier.size(20.dp)) },
                                 onClick = {
@@ -560,7 +594,7 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
                                     ScheduleExport.shareTextFile(context, csv, "${selectedTermCode}_课表.csv", "text/csv")
                                 }
                             )
-                            DropdownMenuItem(
+                            AppDropdownMenuItem(
                                 text = { Text("导出图片") },
                                 leadingIcon = { Icon(Icons.Default.Image, null, Modifier.size(20.dp)) },
                                 onClick = {
@@ -586,17 +620,22 @@ fun ScheduleScreen(login: JwxtLogin? = null, studentId: String = "", onBack: () 
         }
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                SegmentedButton(selected = selectedTab == 0, onClick = { selectedTab = 0 }, shape = SegmentedButtonDefaults.itemShape(0, 3),
-                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 0) { Icon(Icons.Default.CalendarMonth, null, Modifier.size(18.dp)) } }) { Text("课表") }
-                SegmentedButton(selected = selectedTab == 1, onClick = { selectedTab = 1 }, shape = SegmentedButtonDefaults.itemShape(1, 3),
-                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 1) { Icon(Icons.Default.EditCalendar, null, Modifier.size(18.dp)) } }) { Text("考试") }
-                SegmentedButton(selected = selectedTab == 2, onClick = {
-                    selectedTab = 2
-                    android.util.Log.d("ScheduleUI", "Tab 教材 clicked: loaded=$textbooksLoaded, loading=$textbooksLoading, term=$selectedTermCode")
-                    if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
-                }, shape = SegmentedButtonDefaults.itemShape(2, 3),
-                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 2) { Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(18.dp)) } }) { Text("教材") }
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MiuixTheme.colorScheme.surfaceVariant,
+            ) {
+                TabRowWithContour(
+                    tabs = listOf("课表", "考试", "教材"),
+                    selectedTabIndex = selectedTab,
+                    onTabSelected = { tab ->
+                        selectedTab = tab
+                        if (tab == 2) {
+                            android.util.Log.d("ScheduleUI", "Tab 教材 clicked: loaded=$textbooksLoaded, loading=$textbooksLoading, term=$selectedTermCode")
+                            if (!textbooksLoaded && !textbooksLoading && selectedTermCode.isNotEmpty()) loadTextbooks(selectedTermCode)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
 
             if (isLoading) {
@@ -650,15 +689,15 @@ private fun ScheduleTabContent(
         // 学期状态提示（未开学/已结束）
         if (weekNote != null) {
             Surface(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
                 shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                color = MiuixTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
             ) {
                 Text(
                     weekNote,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onTertiaryContainer
                 )
             }
         }
@@ -713,66 +752,96 @@ private fun ScheduleTabContent(
             selectedCourse = null
             onEditCustomCourse(customEntity)
         } else {
-            CourseDetailDialog(course, onDismiss = { selectedCourse = null })
+            val showCourseDetail = remember { mutableStateOf(true) }
+            CourseDetailDialog(show = showCourseDetail, course = course, onDismiss = { selectedCourse = null })
         }
     }
 }
 
 @Composable
-private fun CourseDetailDialog(course: CourseItem, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(course.courseName, fontWeight = FontWeight.Bold)
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (course.teacher.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Person, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("教师: ${course.teacher}", style = MaterialTheme.typography.bodyMedium)
-                    }
+private fun CourseDetailDialog(show: MutableState<Boolean>, course: CourseItem, onDismiss: () -> Unit) {
+    SuperBottomSheet(
+        show = show,
+        title = course.courseName,
+        onDismissRequest = { show.value = false; onDismiss() }
+    ) {
+        // 异步获取教室座位数
+        var seatCount by remember { mutableStateOf<Int?>(null) }
+        LaunchedEffect(course.location) {
+            if (course.location.isNotEmpty()) {
+                seatCount = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try { com.xjtu.toolbox.emptyroom.EmptyRoomApi().getRoomSeatCount(course.location) } catch (_: Exception) { null }
                 }
-                if (course.location.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Place, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.secondary)
+            }
+        }
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (course.teacher.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Person, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("教师: ${course.teacher}", style = MiuixTheme.textStyles.body2)
+                }
+            }
+            if (course.location.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Place, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.secondary)
+                    Spacer(Modifier.width(8.dp))
+                    SelectionContainer {
+                        Text("教室: ${course.location}", style = MiuixTheme.textStyles.body2)
+                    }
+                    if (seatCount != null) {
                         Spacer(Modifier.width(8.dp))
-                        SelectionContainer {
-                            Text("教室: ${course.location}", style = MaterialTheme.typography.bodyMedium)
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = MiuixTheme.colorScheme.secondaryContainer
+                        ) {
+                            Text(
+                                "${seatCount}座",
+                                Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSecondaryContainer
+                            )
                         }
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CalendarMonth, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.tertiary)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CalendarMonth, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primaryVariant)
+                Spacer(Modifier.width(8.dp))
+                val dayName = when (course.dayOfWeek) {
+                    1 -> "一"; 2 -> "二"; 3 -> "三"; 4 -> "四"
+                    5 -> "五"; 6 -> "六"; 7 -> "日"; else -> "?"
+                }
+                Text("星期$dayName  第${course.startSection}-${course.endSection}节", style = MiuixTheme.textStyles.body2)
+            }
+            val weeks = course.getWeeks()
+            if (weeks.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Default.DateRange, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
-                    val dayName = when (course.dayOfWeek) {
-                        1 -> "一"; 2 -> "二"; 3 -> "三"; 4 -> "四"
-                        5 -> "五"; 6 -> "六"; 7 -> "日"; else -> "?"
-                    }
-                    Text("星期$dayName  第${course.startSection}-${course.endSection}节", style = MaterialTheme.typography.bodyMedium)
-                }
-                val weeks = course.getWeeks()
-                if (weeks.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.Top) {
-                        Icon(Icons.Default.DateRange, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(8.dp))
-                        Text("周次: ${formatWeeks(weeks)}", style = MaterialTheme.typography.bodyMedium)
-                    }
-                }
-                if (course.courseType.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Info, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.width(8.dp))
-                        Text("类型: ${course.courseType}", style = MaterialTheme.typography.bodyMedium)
-                    }
+                    Text("周次: ${formatWeeks(weeks)}", style = MiuixTheme.textStyles.body2)
                 }
             }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            if (course.courseType.isNotEmpty()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Info, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("类型: ${course.courseType}", style = MiuixTheme.textStyles.body2)
+                }
+            }
         }
-    )
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = { show.value = false; onDismiss() },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("知道了")
+        }
+        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+    }
 }
 
 /** 格式化周次：[1,2,3,5,7,8,9] → "1-3, 5, 7-9" */
@@ -798,11 +867,11 @@ private fun ExamTabContent(exams: List<ExamItem>) {
     val uniqueExams = exams.distinctBy { "${it.courseName}_${it.examDate}" }
     if (uniqueExams.isEmpty()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("暂无考试安排", style = MaterialTheme.typography.bodyLarge)
+            Text("暂无考试安排", style = MiuixTheme.textStyles.body1)
         }
         return
     }
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
         items(uniqueExams) { exam -> ExamCard(exam) }
     }
 }
@@ -820,19 +889,17 @@ private fun ExamCard(exam: ExamItem) {
     val daysUntil = examLocalDate?.let { java.time.temporal.ChronoUnit.DAYS.between(today, it).toInt() }
 
     val accentColor = when {
-        isToday -> MaterialTheme.colorScheme.error
-        isPast -> MaterialTheme.colorScheme.outline
-        else -> MaterialTheme.colorScheme.primary
+        isToday -> MiuixTheme.colorScheme.error
+        isPast -> MiuixTheme.colorScheme.outline
+        else -> MiuixTheme.colorScheme.primary
     }
 
-    Card(
-        Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isPast) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                else MaterialTheme.colorScheme.surface
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (isPast) 0.dp else 2.dp)
+    top.yukonga.miuix.kmp.basic.Card(
+        modifier = Modifier.fillMaxWidth(),
+        cornerRadius = 16.dp,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = if (isPast) MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                else MiuixTheme.colorScheme.surface
+        )
     ) {
         Row(Modifier.fillMaxWidth()) {
             // ── 左侧：日历日期 ──
@@ -840,7 +907,7 @@ private fun ExamCard(exam: ExamItem) {
                 Surface(
                     modifier = Modifier.width(72.dp).fillMaxHeight(),
                     shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
-                    color = accentColor.copy(alpha = if (isPast) 0.08f else 0.12f)
+                    color = accentColor.copy(alpha = if (isPast) 0.12f else 0.18f)
                 ) {
                     Column(
                         modifier = Modifier.padding(vertical = 16.dp),
@@ -849,13 +916,13 @@ private fun ExamCard(exam: ExamItem) {
                     ) {
                         Text(
                             "${examLocalDate.monthValue}月",
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MiuixTheme.textStyles.footnote1,
                             color = accentColor,
                             fontWeight = FontWeight.Medium
                         )
                         Text(
                             "${examLocalDate.dayOfMonth}",
-                            style = MaterialTheme.typography.headlineMedium,
+                            style = MiuixTheme.textStyles.title4,
                             color = accentColor,
                             fontWeight = FontWeight.Bold
                         )
@@ -865,7 +932,7 @@ private fun ExamCard(exam: ExamItem) {
                         }
                         Text(
                             dayOfWeek,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MiuixTheme.textStyles.footnote1,
                             color = accentColor.copy(alpha = 0.7f)
                         )
                     }
@@ -878,21 +945,21 @@ private fun ExamCard(exam: ExamItem) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         exam.courseName.ifEmpty { "未知课程" },
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MiuixTheme.textStyles.body1,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
                         modifier = Modifier.weight(1f),
-                        color = if (isPast) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            else MaterialTheme.colorScheme.onSurface
+                        color = if (isPast) MiuixTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                            else MiuixTheme.colorScheme.onSurface
                     )
                     Spacer(Modifier.width(6.dp))
                     // 状态标签
                     val (label, badgeColor) = when {
-                        isToday -> "今天" to MaterialTheme.colorScheme.error
-                        daysUntil != null && daysUntil in 1..7 -> "${daysUntil}天后" to MaterialTheme.colorScheme.tertiary
-                        isPast -> "已结束" to MaterialTheme.colorScheme.outline
-                        daysUntil != null && daysUntil > 7 -> "${daysUntil}天后" to MaterialTheme.colorScheme.primary
-                        else -> "" to MaterialTheme.colorScheme.outline
+                        isToday -> "今天" to MiuixTheme.colorScheme.error
+                        daysUntil != null && daysUntil in 1..7 -> "${daysUntil}天后" to MiuixTheme.colorScheme.primaryVariant
+                        isPast -> "已结束" to MiuixTheme.colorScheme.outline
+                        daysUntil != null && daysUntil > 7 -> "${daysUntil}天后" to MiuixTheme.colorScheme.primary
+                        else -> "" to MiuixTheme.colorScheme.outline
                     }
                     if (label.isNotEmpty()) {
                         Surface(
@@ -902,7 +969,7 @@ private fun ExamCard(exam: ExamItem) {
                             Text(
                                 label,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MiuixTheme.textStyles.footnote1,
                                 fontWeight = FontWeight.Bold,
                                 color = badgeColor
                             )
@@ -913,14 +980,14 @@ private fun ExamCard(exam: ExamItem) {
                 Spacer(Modifier.height(8.dp))
 
                 // 时间 + 地点 紧凑排列
-                val infoColor = if (isPast) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    else MaterialTheme.colorScheme.onSurfaceVariant
+                val infoColor = if (isPast) MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
+                    else MiuixTheme.colorScheme.onSurfaceVariantSummary
 
                 if (exam.examTime.isNotEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Schedule, contentDescription = null, Modifier.size(14.dp), tint = infoColor)
                         Spacer(Modifier.width(4.dp))
-                        Text(exam.examTime, style = MaterialTheme.typography.bodySmall, color = infoColor)
+                        Text(exam.examTime, style = MiuixTheme.textStyles.footnote1, color = infoColor)
                     }
                     Spacer(Modifier.height(3.dp))
                 }
@@ -928,9 +995,9 @@ private fun ExamCard(exam: ExamItem) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Place, contentDescription = null, Modifier.size(14.dp), tint = infoColor)
                     Spacer(Modifier.width(4.dp))
-                    Text(exam.location.ifEmpty { "待定" }, style = MaterialTheme.typography.bodySmall, color = infoColor)
+                    Text(exam.location.ifEmpty { "待定" }, style = MiuixTheme.textStyles.footnote1, color = infoColor)
                     if (exam.seatNumber.isNotEmpty()) {
-                        Text("  ·  座位 ${exam.seatNumber}", style = MaterialTheme.typography.bodySmall, color = infoColor, fontWeight = FontWeight.Medium)
+                        Text("  ·  座位 ${exam.seatNumber}", style = MiuixTheme.textStyles.footnote1, color = infoColor, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -953,17 +1020,17 @@ private fun TextbookTabContent(
         textbooks.isEmpty() -> {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.outline)
+                    Icon(Icons.AutoMirrored.Filled.MenuBook, null, Modifier.size(48.dp), tint = MiuixTheme.colorScheme.outline)
                     Spacer(Modifier.height(12.dp))
-                    Text("暂无教材信息", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("暂无教材信息", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     Spacer(Modifier.height(4.dp))
-                    Text("本学期可能未录入教材数据", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                    Text("本学期可能未录入教材数据", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.outline)
                 }
             }
         }
         else -> {
             LazyColumn(
-                Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(vertical = 12.dp)
             ) {
@@ -976,7 +1043,7 @@ private fun TextbookTabContent(
 @Composable
 private fun TextbookCard(item: TextbookItem) {
     val hasTextbook = item.hasSubstantiveTextbook
-    val scheme = MaterialTheme.colorScheme
+    val scheme = MiuixTheme.colorScheme
 
     // 清洗占位符数据
     val author = item.author.trim().takeIf { it.length >= 2 } ?: ""
@@ -987,15 +1054,10 @@ private fun TextbookCard(item: TextbookItem) {
         if (item.edition.isNotBlank()) add(item.edition)
     }
 
-    ElevatedCard(
+    top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.elevatedCardElevation(
-            defaultElevation = if (hasTextbook) 2.dp else 0.dp
-        ),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = if (hasTextbook) scheme.surface else scheme.surfaceContainerLow
-        )
+        cornerRadius = 16.dp,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = scheme.surfaceVariant)
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             // ── 课程名行 ──
@@ -1003,17 +1065,16 @@ private fun TextbookCard(item: TextbookItem) {
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 小书本图标
                 Icon(
                     Icons.AutoMirrored.Filled.MenuBook,
                     contentDescription = null,
                     modifier = Modifier.size(20.dp),
-                    tint = if (hasTextbook) scheme.primary else scheme.outlineVariant
+                    tint = if (hasTextbook) scheme.primary else scheme.outline
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
                     item.courseName.ifEmpty { "未知课程" },
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MiuixTheme.textStyles.subtitle,
                     fontWeight = FontWeight.Bold,
                     color = if (hasTextbook) scheme.onSurface else scheme.onSurface.copy(alpha = 0.55f),
                     maxLines = 2,
@@ -1024,13 +1085,12 @@ private fun TextbookCard(item: TextbookItem) {
                     Spacer(Modifier.width(10.dp))
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = scheme.tertiaryContainer,
-                        tonalElevation = 2.dp
+                        color = scheme.tertiaryContainer
                     ) {
                         Text(
                             "¥${item.price}",
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MiuixTheme.textStyles.body2,
                             fontWeight = FontWeight.Bold,
                             color = scheme.onTertiaryContainer
                         )
@@ -1042,60 +1102,75 @@ private fun TextbookCard(item: TextbookItem) {
                 Spacer(Modifier.height(6.dp))
                 Text(
                     "暂无教材信息",
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MiuixTheme.textStyles.footnote1,
                     color = scheme.outline.copy(alpha = 0.6f),
                     modifier = Modifier.padding(start = 30.dp)
                 )
             } else {
-                // ── 教材详情（左对齐，缩进与图标对齐） ──
-                Column(Modifier.padding(start = 30.dp, top = 10.dp)) {
-                    // 书名
-                    if (bookName.isNotEmpty()) {
-                        SelectionContainer {
-                            Text(
-                                "《${bookName}》",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold,
-                                color = scheme.onSurface
-                            )
-                        }
-                    }
-
-                    // 作者
-                    if (author.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "$author 著",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = scheme.onSurfaceVariant
-                        )
-                    }
-
-                    // 出版社 + 版次
-                    if (pubParts.isNotEmpty()) {
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            pubParts.joinToString(" · "),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = scheme.outline
-                        )
-                    }
-
-                    // ISBN
-                    if (isbn.isNotEmpty()) {
-                        Spacer(Modifier.height(6.dp))
-                        SelectionContainer {
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = scheme.surfaceContainerHighest.copy(alpha = 0.6f)
-                            ) {
+                Spacer(Modifier.height(12.dp))
+                // ── 教材信息区：采用浅色内卡片风格 ──
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = scheme.surface.copy(alpha = 0.7f)
+                ) {
+                    Column(Modifier.padding(14.dp)) {
+                        // 书名
+                        if (bookName.isNotEmpty()) {
+                            SelectionContainer {
                                 Text(
-                                    "ISBN $isbn",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                    letterSpacing = 0.4.sp
+                                    "《${bookName}》",
+                                    style = MiuixTheme.textStyles.body1,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = scheme.onSurface
                                 )
+                            }
+                        }
+
+                        // 作者（带图标）
+                        if (author.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Person, null, Modifier.size(14.dp), tint = scheme.onSurfaceVariantSummary)
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    author,
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = scheme.onSurfaceVariantSummary
+                                )
+                            }
+                        }
+
+                        // 出版社 + 版次（带图标）
+                        if (pubParts.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Business, null, Modifier.size(14.dp), tint = scheme.outline)
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    pubParts.joinToString(" · "),
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = scheme.outline
+                                )
+                            }
+                        }
+
+                        // ISBN（胶囊标签）
+                        if (isbn.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            SelectionContainer {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = scheme.secondaryContainer.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        "ISBN $isbn",
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        style = MiuixTheme.textStyles.footnote1,
+                                        color = scheme.onSecondaryContainer.copy(alpha = 0.8f),
+                                        letterSpacing = 0.4.sp
+                                    )
+                                }
                             }
                         }
                     }

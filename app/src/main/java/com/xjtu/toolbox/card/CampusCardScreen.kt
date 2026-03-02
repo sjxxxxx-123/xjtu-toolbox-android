@@ -1,5 +1,27 @@
 package com.xjtu.toolbox.card
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -12,7 +34,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import top.yukonga.miuix.kmp.basic.SnackbarDuration
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -28,6 +52,9 @@ import com.xjtu.toolbox.auth.CampusCardLogin
 import com.xjtu.toolbox.ui.components.LoadingState
 import com.xjtu.toolbox.ui.components.ErrorState
 import com.xjtu.toolbox.ui.components.EmptyState
+import androidx.compose.animation.*
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.platform.LocalContext
 import com.xjtu.toolbox.ui.components.AppFilterChip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -46,7 +73,6 @@ private enum class TimeRange(val label: String, val months: Int) {
     ONE_YEAR("1年", 12);
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CampusCardScreen(
     login: CampusCardLogin,
@@ -54,6 +80,7 @@ fun CampusCardScreen(
 ) {
     val api = remember { CampusCardApi(login) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
     var isLoading by remember { mutableStateOf(true) }
@@ -86,12 +113,27 @@ fun CampusCardScreen(
 
                 // 先获取卡信息（回填 cardAccount），再并行抓流水
                 cardInfo = withContext(Dispatchers.IO) { api.getCardInfo() }
+                // 缓存余额 + 姓名 供首页智能卡片使用
+                cardInfo?.let { info ->
+                    context.getSharedPreferences("campus_card", 0).edit()
+                        .putFloat("card_balance_cache", info.balance.toFloat())
+                        .putString("card_name_cache", info.name)
+                        .putLong("card_cache_time", System.currentTimeMillis())
+                        .apply()
+                }
                 val allTx = withContext(Dispatchers.IO) {
                     api.getAllTransactions(startDate, endDate, maxPages = 50)
                 }
                 transactions = allTx
                 totalRecords = allTx.size
                 currentPage = (allTx.size + 49) / 50
+                // 缓存最近 5 笔消费供首页智能卡片使用
+                run {
+                    val recentJson = com.google.gson.Gson().toJson(allTx.take(5))
+                    context.getSharedPreferences("campus_card", 0).edit()
+                        .putString("card_recent_tx_cache", recentJson)
+                        .apply()
+                }
 
                 // 并行计算统计
                 withContext(Dispatchers.Default) {
@@ -149,11 +191,15 @@ fun CampusCardScreen(
 
     LaunchedEffect(Unit) { loadData() }
 
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("校园卡") },
+                title = "校园卡",
+                color = MiuixTheme.colorScheme.surfaceVariant,
+                largeTitle = "校园卡",
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回")
@@ -171,29 +217,42 @@ fun CampusCardScreen(
             isLoading -> LoadingState("正在加载校园卡数据...", Modifier.fillMaxSize().padding(padding))
             errorMessage != null -> ErrorState(errorMessage!!, { loadData() }, Modifier.fillMaxSize().padding(padding))
             else -> {
-                Column(Modifier.fillMaxSize().padding(padding)) {
-                    TabRow(selectedTabIndex = selectedTab) {
-                        Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 },
-                            text = { Text("概览") },
-                            icon = { Icon(Icons.Default.Dashboard, null, Modifier.size(18.dp)) })
-                        Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 },
-                            text = { Text("流水") },
-                            icon = { Icon(Icons.Default.Receipt, null, Modifier.size(18.dp)) })
-                        Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 },
-                            text = { Text("分析") },
-                            icon = { Icon(Icons.Default.Analytics, null, Modifier.size(18.dp)) })
-                    }
-                    when (selectedTab) {
-                        0 -> OverviewTab(cardInfo, monthlyStats, transactions.take(5), mealTimeStats)
-                        1 -> TransactionTab(transactions, totalRecords, isLoadingMore, searchQuery,
-                            onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
-                            selectedTimeRange = selectedTimeRange,
-                            onTimeRangeChange = { selectedTimeRange = it; loadData(it) })
-                        2 -> AnalyticsTab(
-                            monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
-                            selectedTimeRange,
-                            onTimeRangeChange = { selectedTimeRange = it; loadData(it) }
+                Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MiuixTheme.colorScheme.surfaceVariant
+                    ) {
+                        TabRowWithContour(
+                            tabs = listOf("概览", "流水", "分析"),
+                            selectedTabIndex = selectedTab,
+                            onTabSelected = { selectedTab = it },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                         )
+                    }
+                    AnimatedContent(
+                        targetState = selectedTab,
+                        transitionSpec = {
+                            val direction = if (targetState > initialState) 1 else -1
+                            (slideInHorizontally { direction * it / 4 } + fadeIn(
+                                spring(dampingRatio = 0.85f, stiffness = 500f)
+                            )) togetherWith (slideOutHorizontally { -direction * it / 4 } + fadeOut(
+                                spring(dampingRatio = 0.85f, stiffness = 500f)
+                            ))
+                        },
+                        label = "campusCardTab"
+                    ) { tab ->
+                        when (tab) {
+                            0 -> OverviewTab(cardInfo, monthlyStats, transactions.take(5), mealTimeStats)
+                            1 -> TransactionTab(transactions, totalRecords, isLoadingMore, searchQuery,
+                                onSearchChange = { searchQuery = it }, onLoadMore = ::loadMore,
+                                selectedTimeRange = selectedTimeRange,
+                                onTimeRangeChange = { selectedTimeRange = it; loadData(it) })
+                            2 -> AnalyticsTab(
+                                monthlyStats, categorySpending, mealTimeStats, weekdayWeekend,
+                                selectedTimeRange,
+                                onTimeRangeChange = { selectedTimeRange = it; loadData(it) }
+                            )
+                        }
                     }
                 }
             }
@@ -211,7 +270,7 @@ private fun OverviewTab(
     mealTimeStats: Map<String, MealTimeStats>
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
@@ -227,7 +286,7 @@ private fun OverviewTab(
         }
         if (recentTransactions.isNotEmpty()) {
             item {
-                Text("最近交易", style = MaterialTheme.typography.titleSmall,
+                Text("最近交易", style = MiuixTheme.textStyles.body1,
                     fontWeight = FontWeight.Medium, modifier = Modifier.padding(top = 4.dp))
             }
             items(recentTransactions) { tx -> TransactionItem(tx) }
@@ -237,34 +296,34 @@ private fun OverviewTab(
 
 @Composable
 private fun BalanceCard(info: CardInfo) {
-    Card(
+    top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        shape = RoundedCornerShape(24.dp)
+        cornerRadius = 24.dp,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
         Column(Modifier.fillMaxWidth().padding(24.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text("校园卡余额", style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                    Text("校园卡余额", style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
-                        Text("¥", style = MaterialTheme.typography.headlineSmall,
+                        Text("¥", style = MiuixTheme.textStyles.headline1,
                             fontWeight = FontWeight.Light,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            color = MiuixTheme.colorScheme.onSurface)
                         Text("%.2f".format(info.balance),
-                            style = MaterialTheme.typography.displaySmall,
+                            style = MiuixTheme.textStyles.title3,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            color = MiuixTheme.colorScheme.onSurface)
                     }
                 }
                 Surface(shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                     modifier = Modifier.size(56.dp)) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(Icons.Default.CreditCard, null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            tint = MiuixTheme.colorScheme.onSurface,
                             modifier = Modifier.size(28.dp))
                     }
                 }
@@ -272,15 +331,15 @@ private fun BalanceCard(info: CardInfo) {
             if (info.pendingAmount > 0) {
                 Spacer(Modifier.height(8.dp))
                 Text("待入账: ¥%.2f".format(info.pendingAmount),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f))
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.6f))
             }
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoPill(info.name, MaterialTheme.colorScheme.onPrimaryContainer)
-                InfoPill(info.cardType, MaterialTheme.colorScheme.onPrimaryContainer)
+                InfoPill(info.name, MiuixTheme.colorScheme.onSurface)
+                InfoPill(info.cardType, MiuixTheme.colorScheme.onSurface)
                 if (info.account.isNotBlank()) {
-                    InfoPill("一卡通号: ${info.account}", MaterialTheme.colorScheme.onPrimaryContainer)
+                    InfoPill("一卡通号: ${info.account}", MiuixTheme.colorScheme.onSurface)
                 }
             }
         }
@@ -292,25 +351,25 @@ private fun InfoPill(text: String, color: Color) {
     if (text.isBlank()) return
     Surface(shape = RoundedCornerShape(8.dp), color = color.copy(alpha = 0.1f)) {
         Text(text, Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-            style = MaterialTheme.typography.labelSmall, color = color.copy(alpha = 0.8f))
+            style = MiuixTheme.textStyles.footnote1, color = color.copy(alpha = 0.8f))
     }
 }
 
 @Composable
 private fun ThisMonthCard(stats: MonthlyStats?, lastMonth: MonthlyStats?) {
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically) {
-                Text("本月消费", style = MaterialTheme.typography.titleMedium,
+                Text("本月消费", style = MiuixTheme.textStyles.subtitle,
                     fontWeight = FontWeight.Medium)
                 if (stats != null && lastMonth != null && lastMonth.totalSpend > 0) {
                     val change = (stats.totalSpend - lastMonth.totalSpend) / lastMonth.totalSpend * 100
                     val isUp = change > 0
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = if (isUp) MaterialTheme.colorScheme.errorContainer
-                        else MaterialTheme.colorScheme.primaryContainer
+                        color = if (isUp) MiuixTheme.colorScheme.errorContainer
+                        else MiuixTheme.colorScheme.secondaryContainer
                     ) {
                         Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically) {
@@ -318,14 +377,14 @@ private fun ThisMonthCard(stats: MonthlyStats?, lastMonth: MonthlyStats?) {
                                 if (isUp) Icons.AutoMirrored.Filled.TrendingUp
                                 else Icons.AutoMirrored.Filled.TrendingDown,
                                 null, modifier = Modifier.size(14.dp),
-                                tint = if (isUp) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.primary)
+                                tint = if (isUp) MiuixTheme.colorScheme.onErrorContainer
+                                else MiuixTheme.colorScheme.onSecondaryContainer)
                             Spacer(Modifier.width(2.dp))
                             Text("%.0f%%".format(abs(change)),
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MiuixTheme.textStyles.footnote1,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isUp) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.primary)
+                                color = if (isUp) MiuixTheme.colorScheme.onErrorContainer
+                                else MiuixTheme.colorScheme.onSecondaryContainer)
                         }
                     }
                 }
@@ -333,13 +392,13 @@ private fun ThisMonthCard(stats: MonthlyStats?, lastMonth: MonthlyStats?) {
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 StatColumn("总支出", "¥%.2f".format(stats?.totalSpend ?: 0.0),
-                    MaterialTheme.colorScheme.error)
+                    MiuixTheme.colorScheme.error)
                 StatColumn("总收入", "¥%.2f".format(stats?.totalIncome ?: 0.0),
-                    MaterialTheme.colorScheme.primary)
+                    MiuixTheme.colorScheme.primary)
                 StatColumn("笔数", "${stats?.transactionCount ?: 0}",
-                    MaterialTheme.colorScheme.tertiary)
+                    MiuixTheme.colorScheme.primaryVariant)
                 StatColumn("日均", "¥%.1f".format(stats?.avgDailySpend ?: 0.0),
-                    MaterialTheme.colorScheme.onSurfaceVariant)
+                    MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             if (stats != null && stats.peakDay.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
@@ -347,34 +406,34 @@ private fun ThisMonthCard(stats: MonthlyStats?, lastMonth: MonthlyStats?) {
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.LocalFireDepartment, null,
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
+                        tint = MiuixTheme.colorScheme.error.copy(alpha = 0.7f),
                         modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("消费最多: ${formatDateShort(stats.peakDay)} ¥%.0f".format(stats.peakDayAmount),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
             if (stats != null && stats.topMerchants.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 HorizontalDivider()
                 Spacer(Modifier.height(12.dp))
-                Text("消费去向", style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("消费去向", style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 Spacer(Modifier.height(8.dp))
                 stats.topMerchants.take(3).forEach { merchant ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically) {
-                        Text(merchant.name, style = MaterialTheme.typography.bodySmall,
+                        Text(merchant.name, style = MiuixTheme.textStyles.footnote1,
                             modifier = Modifier.weight(1f), maxLines = 1,
                             overflow = TextOverflow.Ellipsis)
-                        Text("${merchant.count}笔", style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                        Text("${merchant.count}笔", style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
                         Spacer(Modifier.width(8.dp))
                         Text("¥%.2f".format(merchant.totalAmount),
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.error)
+                            style = MiuixTheme.textStyles.footnote1,
+                            fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.error)
                     }
                 }
             }
@@ -384,13 +443,13 @@ private fun ThisMonthCard(stats: MonthlyStats?, lastMonth: MonthlyStats?) {
 
 @Composable
 private fun MealQuickView(mealStats: Map<String, MealTimeStats>) {
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Restaurant, null,
-                    tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
+                    tint = MiuixTheme.colorScheme.primaryVariant, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("用餐概览", style = MaterialTheme.typography.titleMedium,
+                Text("用餐概览", style = MiuixTheme.textStyles.subtitle,
                     fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(12.dp))
@@ -403,19 +462,19 @@ private fun MealQuickView(mealStats: Map<String, MealTimeStats>) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(mealIcons[period] ?: Icons.Default.Restaurant, null,
                             modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(period, style = MaterialTheme.typography.labelSmall)
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Text(period, style = MiuixTheme.textStyles.footnote1)
                         if (stat != null) {
                             Text("¥%.1f".format(stat.avgAmount),
-                                style = MaterialTheme.typography.bodySmall,
+                                style = MiuixTheme.textStyles.footnote1,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary)
+                                color = MiuixTheme.colorScheme.primary)
                             Text("${stat.count}次",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
                         } else {
-                            Text("—", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+                            Text("—", style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.3f))
                         }
                     }
                 }
@@ -427,10 +486,10 @@ private fun MealQuickView(mealStats: Map<String, MealTimeStats>) {
 @Composable
 private fun StatColumn(label: String, value: String, color: Color) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value, style = MaterialTheme.typography.titleMedium,
+        Text(value, style = MiuixTheme.textStyles.subtitle,
             fontWeight = FontWeight.Bold, color = color, maxLines = 1)
-        Text(label, style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MiuixTheme.textStyles.footnote1,
+            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
     }
 }
 
@@ -452,19 +511,19 @@ private fun CardStatusRow(info: CardInfo) {
 private fun StatusChip(icon: ImageVector, text: String, isWarning: Boolean, modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier, shape = RoundedCornerShape(12.dp),
-        color = if (isWarning) MaterialTheme.colorScheme.errorContainer
-        else MaterialTheme.colorScheme.surfaceContainerHigh
+        color = if (isWarning) MiuixTheme.colorScheme.errorContainer
+        else MiuixTheme.colorScheme.surfaceVariant
     ) {
         Row(Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center) {
             Icon(icon, null, modifier = Modifier.size(14.dp),
-                tint = if (isWarning) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.onSurfaceVariant)
+                tint = if (isWarning) MiuixTheme.colorScheme.error
+                else MiuixTheme.colorScheme.onSurfaceVariantSummary)
             Spacer(Modifier.width(4.dp))
-            Text(text, style = MaterialTheme.typography.labelSmall,
-                color = if (isWarning) MaterialTheme.colorScheme.error
-                else MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(text, style = MiuixTheme.textStyles.footnote1,
+                color = if (isWarning) MiuixTheme.colorScheme.error
+                else MiuixTheme.colorScheme.onSurfaceVariantSummary,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -497,7 +556,7 @@ private fun TransactionTab(
     }
 
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
@@ -506,12 +565,12 @@ private fun TransactionTab(
 
         // 搜索栏
         item {
-            OutlinedTextField(
+            top.yukonga.miuix.kmp.basic.TextField(
                 value = searchQuery,
                 onValueChange = onSearchChange,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                placeholder = { Text("搜索商户/交易类型") },
-                leadingIcon = { Icon(Icons.Default.Search, null, Modifier.size(20.dp)) },
+                label = "搜索商户/交易类型",
+                leadingIcon = { Icon(Icons.Default.Search, null, Modifier.padding(start = 4.dp).size(20.dp)) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
                         IconButton(onClick = { onSearchChange("") }) {
@@ -519,10 +578,7 @@ private fun TransactionTab(
                         }
                     }
                 },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                singleLine = true
             )
         }
         item {
@@ -530,13 +586,13 @@ private fun TransactionTab(
                 Text(
                     if (searchQuery.isNotBlank()) "搜索结果: ${filtered.size} 笔"
                     else "共 $total 笔交易",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 val totalSpend = filtered.filter { it.amount < 0 }.sumOf { -it.amount }
                 val totalIncome = filtered.filter { it.amount > 0 }.sumOf { it.amount }
                 Text("支出¥%.0f | 收入¥%.0f".format(totalSpend, totalIncome),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             Spacer(Modifier.height(8.dp))
         }
@@ -545,13 +601,13 @@ private fun TransactionTab(
                 val dayTotal = -txList.filter { it.amount < 0 }.sumOf { it.amount }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text(formatDateHeader(date),
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MiuixTheme.textStyles.body2,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary)
+                        color = MiuixTheme.colorScheme.primary)
                     if (dayTotal > 0) {
                         Text("−¥%.2f".format(dayTotal),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.error.copy(alpha = 0.7f))
                     }
                 }
                 Spacer(Modifier.height(4.dp))
@@ -563,8 +619,8 @@ private fun TransactionTab(
         if (searchQuery.isBlank() && transactions.size < total) {
             item {
                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                    if (isLoadingMore) CircularProgressIndicator(Modifier.size(24.dp))
-                    else TextButton(onClick = onLoadMore) { Text("加载更多") }
+                    if (isLoadingMore) CircularProgressIndicator(size = 24.dp)
+                    else TextButton(text = "加载更多", onClick = onLoadMore)
                 }
             }
         }
@@ -573,10 +629,10 @@ private fun TransactionTab(
                 Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.SearchOff, null, modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.3f))
                         Spacer(Modifier.height(8.dp))
-                        Text("未找到匹配的交易", style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("未找到匹配的交易", style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
             }
@@ -588,36 +644,35 @@ private fun TransactionTab(
 private fun TransactionItem(tx: Transaction) {
     val isExpense = tx.amount < 0
     val icon = getTransactionIcon(tx)
-    val iconBg = if (isExpense) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+    val iconBg = if (isExpense) MiuixTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+    else MiuixTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
 
-    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
+    Surface(shape = RoundedCornerShape(12.dp), color = MiuixTheme.colorScheme.surfaceVariant, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Surface(shape = CircleShape, color = iconBg, modifier = Modifier.size(40.dp)) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(icon, null, modifier = Modifier.size(20.dp),
-                        tint = if (isExpense) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.primary)
+                        tint = if (isExpense) MiuixTheme.colorScheme.error
+                        else MiuixTheme.colorScheme.primary)
                 }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(tx.merchant.ifBlank { tx.type.ifBlank { tx.description.ifBlank { "未知交易" } } },
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MiuixTheme.textStyles.body2,
                     fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(tx.time.substringAfter(" ").substringBeforeLast(":"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             Column(horizontalAlignment = Alignment.End) {
                 Text((if (isExpense) "-" else "+") + "¥%.2f".format(abs(tx.amount)),
-                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold,
-                    color = if (isExpense) MaterialTheme.colorScheme.error
-                    else MaterialTheme.colorScheme.primary)
+                    style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold,
+                    color = if (isExpense) MiuixTheme.colorScheme.error
+                    else MiuixTheme.colorScheme.primary)
                 Text("余额 ¥%.2f".format(tx.balance),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f))
             }
         }
     }
@@ -635,7 +690,7 @@ private fun AnalyticsTab(
     onTimeRangeChange: (TimeRange) -> Unit
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(vertical = 12.dp)
     ) {
@@ -683,39 +738,42 @@ private fun CategoryCard(categories: Map<String, Double>) {
         Color(0xFFFFB74D), Color(0xFF9575CD), Color(0xFF4DD0E1),
         Color(0xFFA1887F), Color(0xFFFF8A65), Color(0xFF90A4AE), Color(0xFFBDBDBD))
 
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.PieChart, null,
-                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    tint = MiuixTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("消费类别", style = MaterialTheme.typography.titleMedium,
+                Text("消费类别", style = MiuixTheme.textStyles.subtitle,
                     fontWeight = FontWeight.Medium)
                 Spacer(Modifier.weight(1f))
-                Text("总计 ¥%.0f".format(total), style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("总计 ¥%.0f".format(total), style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
             Spacer(Modifier.height(16.dp))
             categories.entries.forEachIndexed { index, (category, amount) ->
                 val percent = if (total > 0) amount / total else 0.0
-                val color = categoryColors.getOrElse(index) { Color.Gray }
+                val color = categoryColors.getOrElse(index) { MiuixTheme.colorScheme.outline }
                 val icon = categoryIcons[category] ?: Icons.Default.MoreHoriz
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Icon(icon, null, modifier = Modifier.size(20.dp), tint = color)
                     Spacer(Modifier.width(8.dp))
-                    Text(category, style = MaterialTheme.typography.bodyMedium,
+                    Text(category, style = MiuixTheme.textStyles.body2,
                         modifier = Modifier.width(48.dp))
                     LinearProgressIndicator(
-                        progress = { percent.toFloat().coerceIn(0f, 1f) },
-                        modifier = Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(4.dp)),
-                        color = color, trackColor = color.copy(alpha = 0.12f))
+                        progress = percent.toFloat().coerceIn(0f, 1f),
+                        modifier = Modifier.weight(1f),
+                        height = 8.dp,
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                            foregroundColor = color, backgroundColor = color.copy(alpha = 0.12f)
+                        ))
                     Spacer(Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.End) {
-                        Text("¥%.0f".format(amount), style = MaterialTheme.typography.bodySmall,
+                        Text("¥%.0f".format(amount), style = MiuixTheme.textStyles.footnote1,
                             fontWeight = FontWeight.Medium)
-                        Text("%.0f%%".format(percent * 100), style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("%.0f%%".format(percent * 100), style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
             }
@@ -726,25 +784,25 @@ private fun CategoryCard(categories: Map<String, Double>) {
 @Composable
 private fun MonthlyTrendCard(stats: List<MonthlyStats>) {
     val maxValue = stats.maxOfOrNull { maxOf(it.totalSpend, it.totalIncome) } ?: 1.0
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
-            Text("月度趋势", style = MaterialTheme.typography.titleMedium,
+            Text("月度趋势", style = MiuixTheme.textStyles.subtitle,
                 fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(8.dp).clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.error))
+                        .background(MiuixTheme.colorScheme.error))
                     Spacer(Modifier.width(4.dp))
-                    Text("支出", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("支出", style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(8.dp).clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary))
+                        .background(MiuixTheme.colorScheme.primary))
                     Spacer(Modifier.width(4.dp))
-                    Text("收入", style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("收入", style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -753,32 +811,38 @@ private fun MonthlyTrendCard(stats: List<MonthlyStats>) {
                 val spendBar = (monthStat.totalSpend / maxValue).toFloat().coerceIn(0f, 1f)
                 val incomeBar = (monthStat.totalIncome / maxValue).toFloat().coerceIn(0f, 1f)
                 Column(Modifier.padding(vertical = 4.dp)) {
-                    Text(monthLabel, style = MaterialTheme.typography.bodySmall,
+                    Text(monthLabel, style = MiuixTheme.textStyles.footnote1,
                         fontWeight = FontWeight.Medium)
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         LinearProgressIndicator(
-                            progress = { spendBar },
-                            modifier = Modifier.weight(1f).height(10.dp).clip(RoundedCornerShape(5.dp)),
-                            color = MaterialTheme.colorScheme.error,
-                            trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.1f))
+                            progress = spendBar,
+                            modifier = Modifier.weight(1f),
+                            height = 10.dp,
+                            colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                                foregroundColor = MiuixTheme.colorScheme.error,
+                                backgroundColor = MiuixTheme.colorScheme.error.copy(alpha = 0.1f)
+                            ))
                         Spacer(Modifier.width(8.dp))
                         Text("¥%.0f".format(monthStat.totalSpend),
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.width(60.dp), color = MaterialTheme.colorScheme.error)
+                            style = MiuixTheme.textStyles.footnote1,
+                            modifier = Modifier.width(60.dp), color = MiuixTheme.colorScheme.error)
                     }
                     if (monthStat.totalIncome > 0) {
                         Spacer(Modifier.height(2.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             LinearProgressIndicator(
-                                progress = { incomeBar },
-                                modifier = Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                                progress = incomeBar,
+                                modifier = Modifier.weight(1f),
+                                height = 6.dp,
+                                colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                                    foregroundColor = MiuixTheme.colorScheme.primary,
+                                    backgroundColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                ))
                             Spacer(Modifier.width(8.dp))
                             Text("¥%.0f".format(monthStat.totalIncome),
-                                style = MaterialTheme.typography.labelSmall,
-                                modifier = Modifier.width(60.dp), color = MaterialTheme.colorScheme.primary)
+                                style = MiuixTheme.textStyles.footnote1,
+                                modifier = Modifier.width(60.dp), color = MiuixTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -789,13 +853,13 @@ private fun MonthlyTrendCard(stats: List<MonthlyStats>) {
 
 @Composable
 private fun MealAnalysisCard(mealStats: Map<String, MealTimeStats>) {
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Restaurant, null,
-                    tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(18.dp))
+                    tint = MiuixTheme.colorScheme.primaryVariant, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("用餐分析", style = MaterialTheme.typography.titleMedium,
+                Text("用餐分析", style = MiuixTheme.textStyles.subtitle,
                     fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(16.dp))
@@ -809,25 +873,28 @@ private fun MealAnalysisCard(mealStats: Map<String, MealTimeStats>) {
             listOf("早餐", "午餐", "晚餐", "夜宵").forEach { period ->
                 val stat = mealStats[period] ?: return@forEach
                 val barPercent = (stat.avgAmount / maxAvg).toFloat().coerceIn(0f, 1f)
-                val color = mealColors[period] ?: MaterialTheme.colorScheme.primary
+                val color = mealColors[period] ?: MiuixTheme.colorScheme.primary
                 Row(Modifier.fillMaxWidth().padding(vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Icon(mealIcons[period] ?: Icons.Default.Restaurant, null,
                         modifier = Modifier.size(20.dp), tint = color)
                     Spacer(Modifier.width(8.dp))
-                    Text(period, style = MaterialTheme.typography.bodyMedium,
+                    Text(period, style = MiuixTheme.textStyles.body2,
                         modifier = Modifier.width(36.dp))
                     LinearProgressIndicator(
-                        progress = { barPercent },
-                        modifier = Modifier.weight(1f).height(8.dp).clip(RoundedCornerShape(4.dp)),
-                        color = color, trackColor = color.copy(alpha = 0.12f))
+                        progress = barPercent,
+                        modifier = Modifier.weight(1f),
+                        height = 8.dp,
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                            foregroundColor = color, backgroundColor = color.copy(alpha = 0.12f)
+                        ))
                     Spacer(Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.End) {
                         Text("均¥%.1f".format(stat.avgAmount),
-                            style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold)
                         Text("${stat.count}次 共¥%.0f".format(stat.totalAmount),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
             }
@@ -838,21 +905,21 @@ private fun MealAnalysisCard(mealStats: Map<String, MealTimeStats>) {
 @Composable
 private fun WeekdayWeekendCard(stats: Pair<DayTypeStats, DayTypeStats>) {
     val (weekday, weekend) = stats
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.CalendarMonth, null,
-                    tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
+                    tint = MiuixTheme.colorScheme.secondary, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("工作日 vs 周末", style = MaterialTheme.typography.titleMedium,
+                Text("工作日 vs 周末", style = MiuixTheme.textStyles.subtitle,
                     fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(16.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 DayTypeColumn("工作日", Icons.Default.Work, weekday,
-                    MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+                    MiuixTheme.colorScheme.primary, Modifier.weight(1f))
                 DayTypeColumn("周末", Icons.Default.Weekend, weekend,
-                    MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
+                    MiuixTheme.colorScheme.primaryVariant, Modifier.weight(1f))
             }
         }
     }
@@ -863,18 +930,18 @@ private fun DayTypeColumn(
     label: String, icon: ImageVector, stats: DayTypeStats,
     color: Color, modifier: Modifier = Modifier
 ) {
-    Surface(modifier = modifier, shape = RoundedCornerShape(16.dp), color = color.copy(alpha = 0.08f)) {
+    Surface(modifier = modifier, shape = RoundedCornerShape(16.dp), color = color.copy(alpha = 0.15f)) {
         Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(icon, null, tint = color, modifier = Modifier.size(24.dp))
             Spacer(Modifier.height(8.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+            Text(label, style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(8.dp))
             Text("¥%.0f".format(stats.totalAmount),
-                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = color)
+                style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold, color = color)
             Spacer(Modifier.height(4.dp))
             Text("${stats.count}笔 | 均¥%.1f".format(stats.avgPerTransaction),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary, textAlign = TextAlign.Center)
         }
     }
 }
@@ -889,13 +956,13 @@ private fun TopMerchantsCard(monthlyStats: List<MonthlyStats>) {
     if (allMerchants.isEmpty()) return
     val maxAmount = allMerchants.maxOfOrNull { it.totalAmount } ?: 1.0
 
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Leaderboard, null,
-                    tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                    tint = MiuixTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("消费排行", style = MaterialTheme.typography.titleMedium,
+                Text("消费排行", style = MiuixTheme.textStyles.subtitle,
                     fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(16.dp))
@@ -903,29 +970,32 @@ private fun TopMerchantsCard(monthlyStats: List<MonthlyStats>) {
                 val barPercent = (merchant.totalAmount / maxAmount).toFloat().coerceIn(0f, 1f)
                 val rankColor = when (index) {
                     0 -> Color(0xFFFFD700); 1 -> Color(0xFFC0C0C0); 2 -> Color(0xFFCD7F32)
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    else -> MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
                 }
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Surface(shape = CircleShape, color = rankColor.copy(alpha = 0.2f),
                         modifier = Modifier.size(24.dp)) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text("${index + 1}", style = MaterialTheme.typography.labelSmall,
+                            Text("${index + 1}", style = MiuixTheme.textStyles.footnote1,
                                 fontWeight = FontWeight.Bold, color = rankColor)
                         }
                     }
                     Spacer(Modifier.width(8.dp))
-                    Text(merchant.name, style = MaterialTheme.typography.bodySmall,
+                    Text(merchant.name, style = MiuixTheme.textStyles.footnote1,
                         modifier = Modifier.width(80.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.width(4.dp))
                     LinearProgressIndicator(
-                        progress = { barPercent },
-                        modifier = Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)),
-                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                        trackColor = MaterialTheme.colorScheme.error.copy(alpha = 0.08f))
+                        progress = barPercent,
+                        modifier = Modifier.weight(1f),
+                        height = 6.dp,
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                            foregroundColor = MiuixTheme.colorScheme.error.copy(alpha = 0.7f),
+                            backgroundColor = MiuixTheme.colorScheme.error.copy(alpha = 0.15f)
+                        ))
                     Spacer(Modifier.width(8.dp))
                     Text("¥%.0f".format(merchant.totalAmount),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = MiuixTheme.textStyles.footnote1,
                         fontWeight = FontWeight.Bold, modifier = Modifier.width(50.dp))
                 }
             }
@@ -945,24 +1015,24 @@ private fun SpendingInsightsCard(
     }
     if (insights.isEmpty()) return
 
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+    top.yukonga.miuix.kmp.basic.Card(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
         Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Lightbulb, null,
-                    tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.size(20.dp))
+                    tint = MiuixTheme.colorScheme.primaryVariant, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("智能洞察", style = MaterialTheme.typography.titleMedium,
+                Text("消费小结", style = MiuixTheme.textStyles.subtitle,
                     fontWeight = FontWeight.Medium)
             }
             Spacer(Modifier.height(12.dp))
             insights.forEach { (icon, text) ->
                 Row(Modifier.padding(vertical = 5.dp), verticalAlignment = Alignment.Top) {
                     Icon(icon, null, modifier = Modifier.size(16.dp).padding(top = 2.dp),
-                        tint = MaterialTheme.colorScheme.primary)
+                        tint = MiuixTheme.colorScheme.primary)
                     Spacer(Modifier.width(8.dp))
-                    Text(text, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = MaterialTheme.typography.bodySmall.lineHeight)
+                    Text(text, style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        lineHeight = MiuixTheme.textStyles.footnote1.lineHeight)
                 }
             }
         }

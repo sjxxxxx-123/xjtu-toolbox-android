@@ -1,5 +1,27 @@
 package com.xjtu.toolbox.library
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import android.content.Context
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
@@ -8,6 +30,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -19,12 +42,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.EventSeat
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.ViewModule
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.ThumbUp
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,7 +60,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xjtu.toolbox.auth.LibraryLogin
-import com.xjtu.toolbox.ui.components.AppFilterChip
+
+import top.yukonga.miuix.kmp.utils.SinkFeedback
+import androidx.compose.foundation.layout.FlowRow
 import com.xjtu.toolbox.ui.components.LoadingState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,7 +82,6 @@ private fun saveFavorites(ctx: Context, favs: Set<String>) =
 
 // ══════ LibraryScreen ══════
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
@@ -73,6 +98,15 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
     var bookingResult by remember { mutableStateOf<BookResult?>(null) }
     var isBooking by remember { mutableStateOf(false) }
     var seatInput by remember { mutableStateOf("") }
+
+    // 预约结果自动消失
+    LaunchedEffect(bookingResult) {
+        if (bookingResult != null) {
+            val delayMs = if (bookingResult?.success == true) 4000L else 6000L
+            kotlinx.coroutines.delay(delayMs)
+            bookingResult = null
+        }
+    }
 
     // 确认对话框
     var confirmDialog by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
@@ -118,6 +152,15 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
     var selectedArea by remember(selectedFloor) { mutableStateOf(areas.firstOrNull() ?: "") }
     LaunchedEffect(areas) {
         if (selectedArea !in areas) selectedArea = areas.firstOrNull() ?: ""
+    }
+
+    // 智能推荐座位
+    val recommendedSeats by remember(seats, selectedArea) {
+        derivedStateOf {
+            val areaCode = LibraryApi.AREA_MAP[selectedArea] ?: return@derivedStateOf emptyList()
+            if (seats.isEmpty()) return@derivedStateOf emptyList()
+            api.recommendSeats(seats, areaCode, topN = 5)
+        }
     }
 
     // ── 加载座位（统一入口） ──
@@ -178,7 +221,8 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
     // 预约前检查：如有现有预约则弹窗确认换座
     fun bookSeat(seatId: String) {
         val existing = myBooking?.seatId
-        if (existing != null) {
+        val isExpired = myBooking?.statusText?.let { "超时" in it || "过期" in it || "失效" in it } == true
+        if (existing != null && !isExpired) {
             val area = myBooking?.area?.let { " ($it)" } ?: ""
             confirmDialog = "你已预约座位 $existing$area\n是否换座到 $seatId？" to {
                 // 直接预约新座位，bookSeat 内部自动检测并确认换座
@@ -222,12 +266,20 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
         }
     }
 
+    // 地图/列表视图切换
+    var showMapView by remember { mutableStateOf(false) }
+    val currentAreaCode = LibraryApi.AREA_MAP[selectedArea] ?: ""
+    val mapAvailable = currentAreaCode in MAP_SUPPORTED_AREAS
+
     val availableCount = seats.count { it.available }
     val totalCount = seats.size
 
     // ── 定时抢座对话框 ──
+    val showGrabDialogState = remember { mutableStateOf(false) }
+    LaunchedEffect(showGrabDialog) { showGrabDialogState.value = showGrabDialog }
     if (showGrabDialog) {
         SeatGrabDialog(
+            show = showGrabDialogState,
             currentFavorites = favorites,
             selectedArea = selectedArea,
             onDismiss = { showGrabDialog = false },
@@ -248,25 +300,48 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
     }
 
     // ── 确认对话框 ──
+    val showConfirmDialog = remember { mutableStateOf(false) }
+    var confirmMsg by remember { mutableStateOf("") }
+    var confirmAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     confirmDialog?.let { (msg, action) ->
-        AlertDialog(
-            onDismissRequest = { confirmDialog = null },
-            title = { Text("确认操作") },
-            text = { Text(msg) },
-            confirmButton = {
-                TextButton(onClick = { confirmDialog = null; action() }) { Text("确认") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDialog = null }) { Text("取消") }
+        LaunchedEffect(msg) {
+            confirmMsg = msg
+            confirmAction = action
+            showConfirmDialog.value = true
+        }
+    }
+    SuperBottomSheet(
+        show = showConfirmDialog,
+        title = "确认操作",
+        onDismissRequest = { showConfirmDialog.value = false; confirmDialog = null }
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(bottom = 12.dp).navigationBarsPadding()
+        ) {
+            Text(confirmMsg, style = MiuixTheme.textStyles.body1)
+            Spacer(Modifier.height(24.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = { showConfirmDialog.value = false; confirmDialog = null },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
+                ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
+                Button(
+                    onClick = { showConfirmDialog.value = false; confirmDialog = null; confirmAction?.invoke() },
+                    modifier = Modifier.weight(1f)
+                ) { Text("确认") }
             }
-        )
+        }
     }
 
     // ══════ UI ══════
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("图书馆座位") },
+                title = "图书馆座位",
+                largeTitle = "图书馆座位",
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "返回") }
                 },
@@ -289,8 +364,8 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                         Icon(
                             Icons.Default.Schedule,
                             "定时抢座",
-                            tint = if (grabScheduled) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (grabScheduled) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                     }
                     IconButton(onClick = { loadSeats() }) { Icon(Icons.Default.Refresh, "刷新") }
@@ -298,39 +373,32 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
             )
         },
         bottomBar = {
-            Surface(tonalElevation = 3.dp) {
+            Surface() {
                 Column(
                     Modifier.fillMaxWidth().imePadding().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     // 预约结果
                     AnimatedVisibility(bookingResult != null) {
-                        Card(
+                        top.yukonga.miuix.kmp.basic.Card(
                             Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (bookingResult?.success == true)
-                                    MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.errorContainer
+                            colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = if (bookingResult?.success == true)
+                                    MiuixTheme.colorScheme.secondaryContainer
+                                else MiuixTheme.colorScheme.errorContainer
                             )
                         ) {
-                            Column(Modifier.padding(12.dp)) {
-                                Text(
-                                    bookingResult?.message ?: "",
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                // 附加操作
-                                if (bookingResult?.success == false) {
-                                    Spacer(Modifier.height(4.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        if ("刷新" in (bookingResult?.message ?: "")) {
-                                            FilledTonalButton(
-                                                onClick = { loadSeats(); bookingResult = null },
-                                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-                                            ) { Text("刷新座位", style = MaterialTheme.typography.labelSmall) }
-                                        }
-                                        TextButton(
-                                            onClick = { bookingResult = null },
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                                        ) { Text("关闭", style = MaterialTheme.typography.labelSmall) }
+                            Box {
+                                Column(Modifier.padding(12.dp).padding(end = 16.dp)) {
+                                    Text(
+                                        bookingResult?.message ?: "",
+                                        style = MiuixTheme.textStyles.footnote1
+                                    )
+                                    // 附加操作
+                                    if (bookingResult?.success == false && "刷新" in (bookingResult?.message ?: "")) {
+                                        Spacer(Modifier.height(4.dp))
+                                        Button(
+                                            onClick = { loadSeats(); bookingResult = null },
+                                            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                                        ) { Text("刷新座位", style = MiuixTheme.textStyles.footnote1) }
                                     }
                                 }
                             }
@@ -342,13 +410,13 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedTextField(
+                        TextField(
                             value = seatInput,
                             onValueChange = { seatInput = it },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            label = { Text("座位号（如 A101）") },
-                            textStyle = MaterialTheme.typography.bodySmall
+                            label = "座位号（如 A101）",
+                            textStyle = MiuixTheme.textStyles.footnote1
                         )
                         Button(
                             onClick = { seatInput.trim().takeIf { it.isNotEmpty() }?.let { bookSeat(it) } },
@@ -359,39 +427,36 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
             }
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
             // ── 当前预约 ──
-            Card(
+            top.yukonga.miuix.kmp.basic.Card(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (myBooking != null) MaterialTheme.colorScheme.tertiaryContainer
-                    else MaterialTheme.colorScheme.surfaceContainerHigh
-                )
+                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
             ) {
                 Column(Modifier.padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.EventSeat, null, Modifier.size(20.dp),
-                            tint = if (myBooking != null) MaterialTheme.colorScheme.onTertiaryContainer
-                            else MaterialTheme.colorScheme.onSurfaceVariant)
+                            tint = if (myBooking != null) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
                             if (myBooking != null) {
                                 Text(
                                     buildString { append("当前预约"); myBooking?.seatId?.let { append("：$it") } },
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    style = MiuixTheme.textStyles.body1,
+                                    fontWeight = FontWeight.Medium
                                 )
                                 val subInfo = buildString {
                                     myBooking?.area?.let { append(it) }
                                     myBooking?.statusText?.let { if (isNotEmpty()) append(" · "); append(it) }
                                 }
                                 if (subInfo.isNotBlank()) Text(
-                                    subInfo, style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
+                                    subInfo, style = MiuixTheme.textStyles.footnote1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )
                             } else {
-                                Text("暂无预约", style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("暂无预约", style = MiuixTheme.textStyles.body1,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                             }
                         }
                         // 刷新预约按钮
@@ -404,57 +469,67 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                             else Icon(Icons.Default.Refresh, "刷新预约", Modifier.size(18.dp))
                         }
                     }
-                    val actions = myBooking?.actionUrls?.filter { (label, _) ->
-                        // 换座功能已内置于选座流程，隐藏多余的"我想换座"按钮
-                        "换座" !in label
-                    }
+                    val expiredStatuses = setOf("已取消", "已完成", "已过期", "已失效", "已违约", "超时取消", "超时未入馆", "超时")
+                    val isExpiredBooking = myBooking?.statusText in expiredStatuses
+                    val actions = if (isExpiredBooking) null else myBooking?.actionUrls
                     if (!actions.isNullOrEmpty()) {
                         Spacer(Modifier.height(8.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            actions.forEach { (label, url) ->
-                                FilledTonalButton(
-                                    onClick = { executeBookingAction(label, url) },
+                            actions.filter { (label, _) -> "换座" !in label }.forEach { (label, url) ->
+                                Button(
+                                    onClick = {
+                                        when {
+                                            "取消" in label || "离开" in label -> {
+                                                // 危险操作：弹二级确认
+                                                confirmDialog = "确定要「$label」吗？" to { executeBookingAction(label, url) }
+                                            }
+                                            else -> executeBookingAction(label, url)
+                                        }
+                                    },
                                     enabled = !isBooking,
-                                    colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = if ("取消" in label) MaterialTheme.colorScheme.errorContainer
-                                        else MaterialTheme.colorScheme.secondaryContainer
+                                    colors = ButtonDefaults.buttonColors(
+                                        color = if ("取消" in label) MiuixTheme.colorScheme.errorContainer
+                                        else MiuixTheme.colorScheme.secondaryContainer
                                     ),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                    insideMargin = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                     modifier = Modifier.height(32.dp)
-                                ) { Text(label, style = MaterialTheme.typography.labelSmall) }
+                                ) { Text(label, style = MiuixTheme.textStyles.footnote1) }
                             }
                         }
                     }
                 }
             }
 
-            // ── 楼层 ──
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                floors.forEach { floor ->
-                    AppFilterChip(
-                        selected = floor == selectedFloor,
-                        onClick = { selectedFloor = floor },
-                        label = floor
-                    )
-                }
-            }
-
-            // ── 区域 ──
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                areas.forEach { area ->
-                    AppFilterChip(
-                        selected = area == selectedArea,
-                        onClick = { selectedArea = area },
-                        label = area
-                    )
+            // ── 楼层/区域选择器 (一体化) ──
+            if (floors.isNotEmpty() || areas.isNotEmpty()) {
+                top.yukonga.miuix.kmp.basic.Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+                ) {
+                    Column {
+                        if (floors.isNotEmpty()) {
+                            TabRowWithContour(
+                                tabs = floors,
+                                selectedTabIndex = (floors.indexOf(selectedFloor)).coerceAtLeast(0),
+                                onTabSelected = { selectedFloor = floors.getOrElse(it) { floors.first() } },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                            )
+                        }
+                        if (floors.isNotEmpty() && areas.isNotEmpty()) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f)
+                            )
+                        }
+                        if (areas.isNotEmpty()) {
+                            TabRowWithContour(
+                                tabs = areas.map { it.removePrefix("北楼").removePrefix("南楼").removePrefix("二层").removePrefix("三层").removePrefix("四层") },
+                                selectedTabIndex = (areas.indexOf(selectedArea)).coerceAtLeast(0),
+                                onTabSelected = { selectedArea = areas.getOrElse(it) { areas.first() } },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -469,11 +544,11 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                 errorMessage != null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(errorMessage!!, color = MaterialTheme.colorScheme.error,
-                                textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
+                            Text(errorMessage!!, color = MiuixTheme.colorScheme.error,
+                                textAlign = TextAlign.Center, style = MiuixTheme.textStyles.body2)
                             Spacer(Modifier.height(12.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilledTonalButton(onClick = { loadSeats() }) { Text("重试") }
+                                Button(onClick = { loadSeats() }) { Text("重试") }
                                 // 认证相关错误 → 提供重新认证
                                 if ("认证" in (errorMessage ?: "") || "登录" in (errorMessage ?: "") || "VPN" in (errorMessage ?: "")) {
                                     var isReAuth by remember { mutableStateOf(false) }
@@ -503,8 +578,8 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
 
                 seats.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("该区域暂无座位数据", style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("该区域暂无座位数据", style = MiuixTheme.textStyles.body1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
 
@@ -514,67 +589,104 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("共 $totalCount 座", style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("共 $totalCount 座", style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         Spacer(Modifier.width(8.dp))
-                        Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                            Text(" $availableCount 可用 ", Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        }
-                        Spacer(Modifier.width(4.dp))
-                        Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                            Text(" ${totalCount - availableCount} 已占 ", Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        Text("$availableCount 可用",
+                            style = MiuixTheme.textStyles.body2,
+                            fontWeight = FontWeight.Bold,
+                            color = MiuixTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("${totalCount - availableCount} 已占",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         // 收藏入口
                         if (favorites.isNotEmpty()) {
                             Spacer(Modifier.width(8.dp))
-                            Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
-                                Text(" ★ ${favorites.size} ", Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer)
+                            Text("★ ${favorites.size}",
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.primaryVariant)
+                        }
+                        // 地图/列表切换
+                        if (mapAvailable) {
+                            Spacer(Modifier.weight(1f))
+                            IconButton(
+                                onClick = { showMapView = !showMapView },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    if (showMapView) Icons.Default.ViewModule else Icons.Default.Map,
+                                    contentDescription = if (showMapView) "列表视图" else "地图视图",
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                     }
 
+                    if (showMapView && mapAvailable) {
+                        // ── 座位地图（物理布局版） ──
+                        SeatMapCanvas(
+                            seats = seats,
+                            areaCode = currentAreaCode,
+                            favorites = favorites,
+                            recommendedSeats = recommendedSeats,
+                            onSeatClick = { bookSeat(it.seatId) },
+                            onSeatLongClick = { toggleFavorite(it) },
+                            onUnavailableSeatClick = { /* no-op */ }
+                        )
+                    } else {
                     // 座位网格
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 56.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize().overScrollVertical()
                     ) {
                         // 收藏座位快捷区
                         val favInArea = seats.filter { it.seatId in favorites }
                         if (favInArea.isNotEmpty()) {
                             item(span = { GridItemSpan(maxLineSpan) }) {
                                 Column(Modifier.padding(bottom = 4.dp)) {
-                                    Text("★ 收藏座位", style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.tertiary)
+                                    Text("★ 收藏座位", style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primaryVariant)
                                     Spacer(Modifier.height(4.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
                                         favInArea.forEach { seat ->
-                                            val avail = seat.available
-                                            SuggestionChip(
-                                                onClick = { if (avail) bookSeat(seat.seatId) },
-                                                label = {
-                                                    Text(
-                                                        seat.seatId,
-                                                        fontWeight = if (avail) FontWeight.Bold else FontWeight.Normal,
-                                                        color = if (avail) MaterialTheme.colorScheme.primary
-                                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                                    )
-                                                },
-                                                icon = {
-                                                    Box(Modifier.size(8.dp).background(
-                                                        if (avail) MaterialTheme.colorScheme.primary
-                                                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                                                        shape = RoundedCornerShape(4.dp)
-                                                    ))
-                                                }
+                                            SeatChip(
+                                                seat = seat,
+                                                isBooking = isBooking,
+                                                isFavorite = true,
+                                                onClick = { if (seat.available) bookSeat(seat.seatId) },
+                                                onLongClick = { toggleFavorite(seat.seatId) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 智能推荐座位
+                        if (recommendedSeats.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Column(Modifier.padding(bottom = 4.dp)) {
+                                    Text("💡 推荐座位", style = MiuixTheme.textStyles.footnote1,
+                                        color = MiuixTheme.colorScheme.primary)
+                                    Spacer(Modifier.height(4.dp))
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        recommendedSeats.forEach { seat ->
+                                            SeatChip(
+                                                seat = seat,
+                                                isBooking = isBooking,
+                                                isFavorite = seat.seatId in favorites,
+                                                onClick = { bookSeat(seat.seatId) },
+                                                onLongClick = { toggleFavorite(seat.seatId) }
                                             )
                                         }
                                     }
@@ -593,6 +705,7 @@ fun LibraryScreen(login: LibraryLogin, onBack: () -> Unit) {
                             )
                         }
                     }
+                    } // end else (list view)
                 }
             }
         }
@@ -608,43 +721,42 @@ private fun SeatChip(
     onClick: () -> Unit, onLongClick: () -> Unit
 ) {
     val bgColor = when {
-        isFavorite && seat.available -> MaterialTheme.colorScheme.tertiaryContainer
-        seat.available -> MaterialTheme.colorScheme.primaryContainer
-        else -> MaterialTheme.colorScheme.surfaceContainerHigh
+        isFavorite && seat.available -> MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.15f)
+        seat.available -> MiuixTheme.colorScheme.primary.copy(alpha = 0.08f)
+        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.08f)
     }
     val textColor = when {
-        isFavorite && seat.available -> MaterialTheme.colorScheme.onTertiaryContainer
-        seat.available -> MaterialTheme.colorScheme.onPrimaryContainer
-        else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-    }
-    val borderColor = when {
-        isFavorite -> MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f)
-        seat.available -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-        else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+        isFavorite && seat.available -> MiuixTheme.colorScheme.primaryVariant
+        seat.available -> MiuixTheme.colorScheme.primary
+        else -> MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
     }
 
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(10.dp))
             .background(bgColor)
-            .border(if (isFavorite) 1.dp else 0.5.dp, borderColor, RoundedCornerShape(6.dp))
             .then(
                 if (!isBooking)
-                    Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                    Modifier.combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = SinkFeedback(),
+                        onClick = onClick,
+                        onLongClick = onLongClick
+                    )
                 else Modifier
             )
-            .padding(horizontal = 4.dp, vertical = 6.dp)
+            .padding(horizontal = 6.dp, vertical = 8.dp)
             .animateContentSize(),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (isFavorite) {
                 Icon(Icons.Default.Star, null, Modifier.size(10.dp),
-                    tint = MaterialTheme.colorScheme.tertiary)
+                    tint = MiuixTheme.colorScheme.primaryVariant)
             }
             Text(
                 seat.seatId,
-                fontSize = 11.sp,
+                style = MiuixTheme.textStyles.footnote1,
                 fontWeight = if (seat.available) FontWeight.Bold else FontWeight.Normal,
                 color = textColor,
                 maxLines = 1,

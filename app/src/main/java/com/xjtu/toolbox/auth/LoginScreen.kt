@@ -1,12 +1,25 @@
 package com.xjtu.toolbox.auth
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,7 +40,8 @@ enum class LoginType(val label: String, val description: String) {
     JWAPP("移动教务", "成绩查询"),
     YWTB("一网通办", "个人信息/学期"),
     LIBRARY("图书馆", "座位预约"),
-    CAMPUS_CARD("校园卡", "余额/账单查询");
+    CAMPUS_CARD("校园卡", "余额/账单查询"),
+    DZPZ("电子打印证", "成绩单下载");
 
     /**
      * 创建对应的 Login 实例
@@ -47,10 +61,10 @@ enum class LoginType(val label: String, val description: String) {
         YWTB -> YwtbLogin(existingClient, visitorId, cachedRsaKey)
         LIBRARY -> LibraryLogin(existingClient, visitorId)
         CAMPUS_CARD -> CampusCardLogin(existingClient, visitorId)
+        DZPZ -> DzpzLogin(existingClient, visitorId, cachedRsaKey)
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
     loginType: LoginType = LoginType.ATTENDANCE,
@@ -71,8 +85,9 @@ fun LoginScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("登录 · ${loginType.label}") },
+            SmallTopAppBar(
+                title = "登录 · ${loginType.label}",
+                color = MiuixTheme.colorScheme.surfaceVariant,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -92,22 +107,22 @@ fun LoginScreen(
             // 标题
             Text(
                 text = "西安交通大学",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.primary
+                style = MiuixTheme.textStyles.title4,
+                color = MiuixTheme.colorScheme.primary
             )
             Text(
                 text = "统一身份认证 · ${loginType.description}",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = MiuixTheme.textStyles.subtitle,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
 
             Spacer(modifier = Modifier.height(32.dp))
 
             // 学号输入
-            OutlinedTextField(
+            TextField(
                 value = username,
                 onValueChange = { username = it },
-                label = { Text("学号 / 手机号") },
+                label = "学号 / 手机号",
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
@@ -117,10 +132,10 @@ fun LoginScreen(
 
             // 密码输入
             var passwordVisible by remember { mutableStateOf(false) }
-            OutlinedTextField(
+            TextField(
                 value = password,
                 onValueChange = { password = it },
-                label = { Text("密码") },
+                label = "密码",
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
@@ -141,8 +156,8 @@ fun LoginScreen(
             errorMessage?.let {
                 Text(
                     text = it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall
+                    color = MiuixTheme.colorScheme.error,
+                    style = MiuixTheme.textStyles.footnote1
                 )
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -151,8 +166,8 @@ fun LoginScreen(
             if (statusMessage.isNotEmpty()) {
                 Text(
                     text = statusMessage,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    style = MiuixTheme.textStyles.footnote1
                 )
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -240,8 +255,8 @@ fun LoginScreen(
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
+                        size = 20.dp,
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = MiuixTheme.colorScheme.onPrimary),
                         strokeWidth = 2.dp
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -256,8 +271,8 @@ fun LoginScreen(
             // 提示
             Text(
                 text = "使用西安交通大学统一身份认证登录\n密码仅在本地加密后发送至学校服务器",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
         }
     }

@@ -1,5 +1,13 @@
 package com.xjtu.toolbox.ui
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -7,10 +15,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -92,15 +100,15 @@ fun WeekSelector(currentWeek: Int, totalWeeks: Int, onWeekChange: (Int) -> Unit)
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                 contentDescription = "上一周",
-                tint = if (currentWeek > 1) MaterialTheme.colorScheme.primary
-                       else MaterialTheme.colorScheme.outlineVariant
+                tint = if (currentWeek > 1) MiuixTheme.colorScheme.primary
+                       else MiuixTheme.colorScheme.outline
             )
         }
         Text(
             "第 $currentWeek 周",
-            style = MaterialTheme.typography.titleMedium,
+            style = MiuixTheme.textStyles.subtitle,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
+            color = MiuixTheme.colorScheme.primary,
             modifier = Modifier.padding(horizontal = 20.dp)
         )
         IconButton(
@@ -110,8 +118,8 @@ fun WeekSelector(currentWeek: Int, totalWeeks: Int, onWeekChange: (Int) -> Unit)
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = "下一周",
-                tint = if (currentWeek < totalWeeks) MaterialTheme.colorScheme.primary
-                       else MaterialTheme.colorScheme.outlineVariant
+                tint = if (currentWeek < totalWeeks) MiuixTheme.colorScheme.primary
+                       else MiuixTheme.colorScheme.outline
             )
         }
     }
@@ -170,6 +178,7 @@ fun ScheduleGrid(
     Column(
         Modifier
             .fillMaxSize()
+            .overScrollVertical()
             .verticalScroll(scrollState)
     ) {
         // ── 星期头 ──
@@ -186,7 +195,7 @@ fun ScheduleGrid(
                 ) {
                     Text(
                         day, fontSize = 12.sp, fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MiuixTheme.colorScheme.onSurface
                     )
                 }
             }
@@ -220,11 +229,11 @@ fun ScheduleGrid(
                                 Text(
                                     timeStr, fontSize = 8.sp,
                                     fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f)
                                 )
                                 Text(
                                     "$section", fontSize = 9.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.35f)
                                 )
                             }
                         }
@@ -235,9 +244,9 @@ fun ScheduleGrid(
                                     .fillMaxHeight()
                                     .background(
                                         if ((section + day) % 2 == 0)
-                                            MaterialTheme.colorScheme.surfaceContainerLowest
+                                            MiuixTheme.colorScheme.surfaceVariant
                                         else
-                                            MaterialTheme.colorScheme.surface
+                                            MiuixTheme.colorScheme.surface
                                     )
                             )
                         }
@@ -288,11 +297,14 @@ fun ScheduleGrid(
                     val cellHeight = SECTION_HEIGHT * span
                     val dayLeft = LEFT_COL_WIDTH + dayWidth * (slot.slotDayOfWeek - 1)
 
-                    // 冲突课程：纵向等分（每门课占 cellHeight/totalCols 高度），全宽显示
-                    val slotWidth = dayWidth
-                    val leftOffset = dayLeft
-                    val slotHeight = if (totalCols <= 1) cellHeight else cellHeight / totalCols
-                    val slotTopOffset = topOffset + slotHeight * colIndex
+                    // 冲突课程：横向等分（每门课占 dayWidth/totalCols 宽度），全高显示
+                    // 水平分割避免用户误认为不同节次
+                    val gapDp = if (totalCols > 1) 1.dp else 0.dp
+                    val totalGap = gapDp * (totalCols - 1)
+                    val slotWidth = if (totalCols <= 1) dayWidth else (dayWidth - totalGap) / totalCols
+                    val leftOffset = dayLeft + (slotWidth + gapDp) * colIndex
+                    val slotHeight = cellHeight
+                    val slotTopOffset = topOffset
 
 
 
@@ -401,18 +413,18 @@ fun CourseCell(
     color: Color,
     onClick: () -> Unit = {}
 ) {
-    Card(
+    top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier
-            .fillMaxSize()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(6.dp),
-        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.88f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            .fillMaxSize(),
+        onClick = onClick,
+        cornerRadius = 8.dp,
+        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = color.copy(alpha = 0.88f))
     ) {
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 3.dp, vertical = 2.dp),
+                .padding(horizontal = 4.dp, vertical = 3.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -420,7 +432,11 @@ fun CourseCell(
                 name, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                 color = if (color.luminance() > 0.5f) Color.Black else Color.White,
                 textAlign = TextAlign.Center,
-                maxLines = if (spanSections >= 3) 3 else 2,
+                maxLines = when {
+                    spanSections >= 4 -> 5
+                    spanSections >= 3 -> 4
+                    else -> 2
+                },
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 12.sp
             )
@@ -429,7 +445,9 @@ fun CourseCell(
                 Text(
                     "@$location", fontSize = 8.sp,
                     color = (if (color.luminance() > 0.5f) Color.Black else Color.White).copy(alpha = 0.85f),
-                    textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             if (weekInfo.isNotEmpty() && spanSections >= 2) {

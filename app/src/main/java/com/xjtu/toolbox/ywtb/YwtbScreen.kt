@@ -1,5 +1,23 @@
 package com.xjtu.toolbox.ywtb
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -9,7 +27,6 @@ import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,7 +39,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun YwtbScreen(login: YwtbLogin, onBack: () -> Unit) {
     val api = remember { YwtbApi(login) }
@@ -61,28 +77,29 @@ fun YwtbScreen(login: YwtbLogin, onBack: () -> Unit) {
         } finally { isLoading = false }
     }
 
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("一网通办") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } })
+            TopAppBar(title = "一网通办", color = MiuixTheme.colorScheme.surfaceVariant, largeTitle = "一网通办", scrollBehavior = scrollBehavior, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } })
         }
     ) { padding ->
         when {
             isLoading -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(); Spacer(Modifier.height(8.dp)); Text("正在加载...", style = MaterialTheme.typography.bodyMedium) }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(); Spacer(Modifier.height(8.dp)); Text("正在加载...", style = MiuixTheme.textStyles.body2) }
             }
             errorMessage != null -> Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(errorMessage!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyLarge)
+                    Text(errorMessage!!, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.body1)
                     Spacer(Modifier.height(16.dp))
-                    OutlinedButton(onClick = { errorMessage = null; isLoading = true; scope.launch { try { withContext(Dispatchers.IO) { userInfo = api.getUserInfo() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { errorMessage = "加载失败: ${e.message}" } finally { isLoading = false } } }) { Text("重试") }
+                    TextButton(text = "重试", onClick = { errorMessage = null; isLoading = true; scope.launch { try { withContext(Dispatchers.IO) { userInfo = api.getUserInfo() } } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { errorMessage = "加载失败: ${e.message}" } finally { isLoading = false } } })
                 }
             }
-            else -> Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            else -> Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp).nestedScroll(scrollBehavior.nestedScrollConnection).overScrollVertical().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Spacer(Modifier.height(8.dp))
                 userInfo?.let { info ->
-                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+                    top.yukonga.miuix.kmp.basic.Card(Modifier.fillMaxWidth(), colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)) {
                         Column(Modifier.padding(20.dp)) {
-                            Text("个人信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("个人信息", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(16.dp))
                             InfoRow(Icons.Default.Person, "姓名", info.userName)
                             Spacer(Modifier.height(12.dp))
@@ -95,9 +112,9 @@ fun YwtbScreen(login: YwtbLogin, onBack: () -> Unit) {
                     }
                 }
                 if (currentTerm != null) {
-                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
+                    top.yukonga.miuix.kmp.basic.Card(Modifier.fillMaxWidth(), colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer)) {
                         Column(Modifier.padding(20.dp)) {
-                            Text("学期信息", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("学期信息", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(16.dp))
                             // 学期名显示：将 "2024-2025-2" 格式化为 "2024-2025 第二学期"
                             val termParts = currentTerm?.split("-")
@@ -124,9 +141,9 @@ fun YwtbScreen(login: YwtbLogin, onBack: () -> Unit) {
 @Composable
 private fun InfoRow(icon: ImageVector, label: String, value: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         Spacer(Modifier.width(12.dp))
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.width(80.dp))
-        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+        Text(label, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, modifier = Modifier.width(80.dp))
+        Text(value, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
     }
 }

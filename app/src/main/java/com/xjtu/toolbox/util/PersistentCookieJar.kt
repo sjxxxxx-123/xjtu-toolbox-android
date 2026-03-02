@@ -28,23 +28,37 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
         private const val KEY_ALL_COOKIES = "all_cookies"
     }
 
-    private val prefs: SharedPreferences = try {
-        EncryptedSharedPreferences.create(
-            prefsName,
-            MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-            context,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-    } catch (_: Exception) {
-        context.getSharedPreferences("${prefsName}_fallback", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val prefsFileName = prefsName
+
+    private val prefs: SharedPreferences by lazy {
+        try {
+            EncryptedSharedPreferences.create(
+                prefsFileName,
+                MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
+                appContext,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (_: Exception) {
+            appContext.getSharedPreferences("${prefsFileName}_fallback", Context.MODE_PRIVATE)
+        }
     }
 
     // domain -> list of cookies（内存缓存）
     private val cookieStore = ConcurrentHashMap<String, MutableList<Cookie>>()
 
-    init {
-        loadFromDisk()
+    // loadFromDisk 延迟到首次使用时触发
+    @Volatile private var loaded = false
+    private fun ensureLoaded() {
+        if (!loaded) {
+            synchronized(this) {
+                if (!loaded) {
+                    loadFromDisk()
+                    loaded = true
+                }
+            }
+        }
     }
 
     // 防抖写盘：避免 CAS 登录链路中 5-10 次重定向每次都触发加密写入
@@ -70,6 +84,7 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
     }
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
+        ensureLoaded()
         for (cookie in cookies) {
             val domain = cookie.domain
             val list = cookieStore.getOrPut(domain) { mutableListOf() }
@@ -86,6 +101,7 @@ class PersistentCookieJar(context: Context, prefsName: String = PREFS_NAME) : Co
     }
 
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
+        ensureLoaded()
         val now = System.currentTimeMillis()
         val result = mutableListOf<Cookie>()
         for ((domain, cookies) in cookieStore) {

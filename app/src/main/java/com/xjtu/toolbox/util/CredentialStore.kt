@@ -13,32 +13,34 @@ class CredentialStore(context: Context) {
 
     private val appContext = context.applicationContext
 
-    private val prefs: SharedPreferences = try {
-        EncryptedSharedPreferences.create(
-            "xjtu_credentials",
-            MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-            context,
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-        )
-    } catch (e: Exception) {
-        // 加密失败：尝试清除损坏文件后重建
-        android.util.Log.e("CredentialStore", "EncryptedSharedPreferences init failed, attempting recovery", e)
+    private val prefs: SharedPreferences by lazy {
         try {
-            // 删除可能损坏的文件
-            val prefsDir = java.io.File(context.applicationInfo.dataDir, "shared_prefs")
-            prefsDir.listFiles()?.filter { it.name.startsWith("xjtu_credentials") }?.forEach { it.delete() }
             EncryptedSharedPreferences.create(
                 "xjtu_credentials",
                 MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
-                context,
+                appContext,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
-        } catch (_: Exception) {
-            // 最终兆底：仅内存 SharedPreferences，不写磁盘，避免明文存储密码
-            android.util.Log.e("CredentialStore", "Recovery failed, using in-memory prefs (credentials will not persist)")
-            InMemorySharedPreferences()
+        } catch (e: Exception) {
+            // 加密失败：尝试清除损坏文件后重建
+            android.util.Log.e("CredentialStore", "EncryptedSharedPreferences init failed, attempting recovery", e)
+            try {
+                // 删除可能损坏的文件
+                val prefsDir = java.io.File(appContext.applicationInfo.dataDir, "shared_prefs")
+                prefsDir.listFiles()?.filter { it.name.startsWith("xjtu_credentials") }?.forEach { it.delete() }
+                EncryptedSharedPreferences.create(
+                    "xjtu_credentials",
+                    MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC),
+                    appContext,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+            } catch (_: Exception) {
+                // 最终兆底：仅内存 SharedPreferences，不写磁盘，避免明文存储密码
+                android.util.Log.e("CredentialStore", "Recovery failed, using in-memory prefs (credentials will not persist)")
+                InMemorySharedPreferences()
+            }
         }
     }
 

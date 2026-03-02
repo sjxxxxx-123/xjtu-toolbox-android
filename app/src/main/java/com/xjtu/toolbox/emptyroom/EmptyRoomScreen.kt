@@ -1,20 +1,49 @@
 package com.xjtu.toolbox.emptyroom
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import androidx.activity.compose.BackHandler
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
+import top.yukonga.miuix.kmp.basic.Checkbox
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.utils.SinkFeedback
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.*
+import com.xjtu.toolbox.ui.components.AppDropdownMenu
+import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -94,21 +123,20 @@ private fun getSmartTags(room: RoomInfo, currentPeriod: Int): List<Pair<String, 
     if (isNowFree) {
         val freePeriods = consecutiveFree(room.status, currentPeriod)
         if (wasBusy) {
-            tags.add("刚解放" to MaterialTheme.colorScheme.tertiary)
+            tags.add("刚解放" to MiuixTheme.colorScheme.primaryVariant)
         }
         when {
-            freePeriods >= 4 -> tags.add("空闲≥4节" to MaterialTheme.colorScheme.primary)
-            freePeriods >= 2 -> tags.add("空闲${freePeriods}节" to MaterialTheme.colorScheme.primary)
-            else -> tags.add("本节空闲" to MaterialTheme.colorScheme.secondary)
+            freePeriods >= 4 -> tags.add("空闲≥4节" to MiuixTheme.colorScheme.primary)
+            freePeriods >= 2 -> tags.add("空闲${freePeriods}节" to MiuixTheme.colorScheme.primary)
+            else -> tags.add("本节空闲" to MiuixTheme.colorScheme.secondary)
         }
     }
 
-    if (room.size >= 100) tags.add("大教室" to MaterialTheme.colorScheme.tertiary)
+    if (room.size >= 100) tags.add("大教室" to MiuixTheme.colorScheme.primaryVariant)
 
     return tags
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EmptyRoomScreen(onBack: () -> Unit) {
     val api = remember { EmptyRoomApi() }
@@ -117,11 +145,14 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val campusNames = CAMPUS_BUILDINGS.keys.toList()
-    var selectedCampus by rememberSaveable { mutableStateOf(campusNames.firstOrNull() ?: "") }
+    var selectedCampusIndex by rememberSaveable { mutableIntStateOf(0) }
+    val selectedCampus = campusNames.getOrElse(selectedCampusIndex) { campusNames.firstOrNull() ?: "" }
 
     val buildings = remember(selectedCampus) { CAMPUS_BUILDINGS[selectedCampus] ?: emptyList() }
-    // 切换校区时自动选第一个教学楼，消除 LaunchedEffect 竞态
-    var selectedBuilding by rememberSaveable(selectedCampus) { mutableStateOf(buildings.firstOrNull() ?: "") }
+    // 教学楼多选
+    var selectedBuildings by rememberSaveable(selectedCampus) {
+        mutableStateOf(setOf(buildings.firstOrNull() ?: ""))
+    }
 
     val availableDates = remember { api.getAvailableDates() }
     var selectedDate by rememberSaveable { mutableStateOf(availableDates.firstOrNull() ?: "") }
@@ -141,13 +172,14 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
     val effectivePeriod = if (isToday) currentPeriod else -1
 
     // 自动查询（选择改变即触发）
-    LaunchedEffect(selectedCampus, selectedBuilding, selectedDate) {
-        if (selectedBuilding.isNotEmpty()) {
+    LaunchedEffect(selectedCampus, selectedBuildings, selectedDate) {
+        val active = selectedBuildings.filter { it.isNotEmpty() }.toSet()
+        if (active.isNotEmpty()) {
             isLoading = true
             errorMessage = null
             try {
                 val result = withContext(Dispatchers.IO) {
-                    api.getEmptyRooms(selectedCampus, selectedBuilding, selectedDate)
+                    api.getEmptyRoomsMulti(selectedCampus, active, selectedDate)
                 }
                 rooms = result
             } catch (e: kotlin.coroutines.cancellation.CancellationException) {
@@ -190,10 +222,13 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
         }
     }
 
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("空闲教室") },
+                title = "空闲教室",
+                largeTitle = "空闲教室",
+                scrollBehavior = scrollBehavior,
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -206,53 +241,69 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
         ) {
-            // ── 选择器区域 ──
-
-            // 位置选择
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                shape = RoundedCornerShape(12.dp),
-                tonalElevation = 1.dp
-            ) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                    // 校区
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        campusNames.forEach { campus ->
-                            AppFilterChip(
-                                selected = selectedCampus == campus,
-                                onClick = { selectedCampus = campus },
-                                label = campus.removeSuffix("校区")
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    // 教学楼
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        buildings.forEach { building ->
-                            AppFilterChip(
-                                selected = selectedBuilding == building,
-                                onClick = { selectedBuilding = building },
-                                label = building
-                            )
-                        }
-                    }
-                }
+            // ── 选择器区域 (一体化) ──
+            val showBuildingSheet = remember { mutableStateOf(false) }
+            BackHandler(enabled = showBuildingSheet.value) {
+                showBuildingSheet.value = false
             }
 
-            // 时间筛选
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
-                shape = RoundedCornerShape(12.dp),
-                tonalElevation = 1.dp
+            top.yukonga.miuix.kmp.basic.Card(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
             ) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Column {
+                    // 校区 — TabRowWithContour 单选
+                    TabRowWithContour(
+                        tabs = campusNames.map { it.removeSuffix("校区") },
+                        selectedTabIndex = selectedCampusIndex,
+                        onTabSelected = { selectedCampusIndex = it },
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f)
+                    )
+
+                    // 教学楼 — 摘要行
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = SinkFeedback()
+                            ) { showBuildingSheet.value = true }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("教学楼", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Medium)
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            selectedBuildings.joinToString("、"),
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack, null,
+                            Modifier.size(16.dp).graphicsLayer { rotationZ = 180f },
+                            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        )
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MiuixTheme.colorScheme.outline.copy(alpha = 0.08f)
+                    )
+
+                    // 时间筛选
+                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     // 日期 + 当前节次
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -271,19 +322,19 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                         if (isToday && currentPeriod >= 0) {
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.tertiaryContainer
+                                color = MiuixTheme.colorScheme.primary.copy(alpha = 0.1f)
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(Icons.Default.Schedule, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                                    Icon(Icons.Default.Schedule, null, Modifier.size(14.dp), tint = MiuixTheme.colorScheme.primary)
                                     Spacer(Modifier.width(4.dp))
                                     Text(
                                         "第${currentPeriod + 1}节 ${PERIOD_TIMES[currentPeriod].first}",
-                                        style = MaterialTheme.typography.labelMedium,
+                                        style = MiuixTheme.textStyles.body2,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                        color = MiuixTheme.colorScheme.primary
                                     )
                                 }
                             }
@@ -293,8 +344,8 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                     // 节数区间（标题 + 选择器）
                     Text(
                         "空闲节次范围",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(bottom = 2.dp)
                     )
                     Row(
@@ -310,9 +361,9 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                                 onClick = { startExpanded = true },
                                 label = "第${startPeriod}节起"
                             )
-                            DropdownMenu(expanded = startExpanded, onDismissRequest = { startExpanded = false }) {
+                            AppDropdownMenu(expanded = startExpanded, onDismissRequest = { startExpanded = false }) {
                                 (1..11).forEach { p ->
-                                    DropdownMenuItem(
+                                    AppDropdownMenuItem(
                                         text = { Text("第${p}节  ${PERIOD_TIMES[p - 1].first}") },
                                         onClick = {
                                             startPeriod = p
@@ -323,7 +374,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                                 }
                             }
                         }
-                        Text("—", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                        Text("—", color = MiuixTheme.colorScheme.onSurfaceVariantSummary, fontSize = 12.sp)
                         // 结束节
                         var endExpanded by remember { mutableStateOf(false) }
                         Box {
@@ -332,9 +383,9 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                                 onClick = { endExpanded = true },
                                 label = "第${endPeriod}节止"
                             )
-                            DropdownMenu(expanded = endExpanded, onDismissRequest = { endExpanded = false }) {
+                            AppDropdownMenu(expanded = endExpanded, onDismissRequest = { endExpanded = false }) {
                                 (startPeriod..11).forEach { p ->
-                                    DropdownMenuItem(
+                                    AppDropdownMenuItem(
                                         text = { Text("第${p}节  ${PERIOD_TIMES[p - 1].first}") },
                                         onClick = { endPeriod = p; endExpanded = false }
                                     )
@@ -346,8 +397,8 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                     // 智能筛选（独立行，可横向滚动）
                     Text(
                         "快捷筛选",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MiuixTheme.textStyles.footnote1,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                         modifier = Modifier.padding(bottom = 2.dp)
                     )
                     Row(
@@ -363,6 +414,78 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                         }
                     }
                 }
+            } // Column inside Card
+            } // Card
+
+            // 教学楼选择 BottomSheet
+            SuperBottomSheet(
+                show = showBuildingSheet,
+                title = "选择教学楼",
+                onDismissRequest = { showBuildingSheet.value = false }
+            ) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    // 全选/取消全选
+                    val allSelected = selectedBuildings.size == buildings.size
+                    Row(
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = SinkFeedback()
+                            ) {
+                                selectedBuildings = if (allSelected) setOf(buildings.firstOrNull() ?: "") else buildings.toSet()
+                            }
+                            .padding(horizontal = 4.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = allSelected,
+                            onCheckedChange = {
+                                selectedBuildings = if (it) buildings.toSet() else setOf(buildings.firstOrNull() ?: "")
+                            }
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text("全选", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                    buildings.forEach { building ->
+                        val isSelected = building in selectedBuildings
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = SinkFeedback()
+                                ) {
+                                    selectedBuildings = if (isSelected) {
+                                        val newSet = selectedBuildings - building
+                                        if (newSet.isEmpty()) selectedBuildings else newSet
+                                    } else selectedBuildings + building
+                                }
+                                .padding(horizontal = 4.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = isSelected,
+                                onCheckedChange = { checked ->
+                                    selectedBuildings = if (checked) selectedBuildings + building
+                                    else {
+                                        val newSet = selectedBuildings - building
+                                        if (newSet.isEmpty()) selectedBuildings else newSet
+                                    }
+                                }
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(building, style = MiuixTheme.textStyles.body1)
+                        }
+                    }
+                }
             }
 
             Spacer(Modifier.height(4.dp))
@@ -374,7 +497,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             CircularProgressIndicator()
                             Spacer(Modifier.height(8.dp))
-                            Text("正在查询...", style = MaterialTheme.typography.bodyMedium)
+                            Text("正在查询...", style = MiuixTheme.textStyles.body2)
                         }
                     }
                 }
@@ -382,14 +505,14 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                 errorMessage != null -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(errorMessage!!, color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
+                            Text(errorMessage!!, color = MiuixTheme.colorScheme.error, textAlign = TextAlign.Center)
                             Spacer(Modifier.height(12.dp))
-                            FilledTonalButton(onClick = {
+                            Button(onClick = {
                                 isLoading = true; errorMessage = null
                                 scope.launch {
                                     try {
                                         rooms = withContext(Dispatchers.IO) {
-                                            api.getEmptyRooms(selectedCampus, selectedBuilding, selectedDate)
+                                            api.getEmptyRoomsMulti(selectedCampus, selectedBuildings, selectedDate)
                                         }
                                     } catch (e: kotlin.coroutines.cancellation.CancellationException) {
                                         throw e
@@ -402,19 +525,19 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                     }
                 }
 
-                rooms.isEmpty() && selectedBuilding.isEmpty() -> {
+                rooms.isEmpty() && selectedBuildings.all { it.isEmpty() } -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("选择教学楼后自动查询",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            style = MiuixTheme.textStyles.body1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
 
                 displayRooms.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("暂无符合条件的教室", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            TextButton(onClick = { smartFilter = "全部" }) { Text("查看全部") }
+                            Text("暂无符合条件的教室", color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            TextButton(text = "查看全部", onClick = { smartFilter = "全部" })
                         }
                     }
                 }
@@ -427,15 +550,15 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                     ) {
                         Text(
                             "${displayRooms.size} 间教室",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
                         val totalRooms = rooms.size
                         if (totalRooms != displayRooms.size) {
                             Text(
                                 " / 共 $totalRooms",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                style = MiuixTheme.textStyles.footnote1,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f)
                             )
                         }
                     }
@@ -445,7 +568,7 @@ fun EmptyRoomScreen(onBack: () -> Unit) {
                     LazyColumn(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize().overScrollVertical()
                     ) {
                         items(displayRooms, key = { it.name }) { room ->
                             SmartRoomCard(room, effectivePeriod)
@@ -478,8 +601,8 @@ private fun PeriodHeader(currentPeriod: Int) {
                     "$p",
                     fontSize = 9.sp,
                     fontWeight = if (isCurrent) FontWeight.ExtraBold else FontWeight.Normal,
-                    color = if (isCurrent) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    color = if (isCurrent) MiuixTheme.colorScheme.primary
+                    else MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f),
                     textAlign = TextAlign.Center
                 )
             }
@@ -498,7 +621,7 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
 
-    Card(
+    top.yukonga.miuix.kmp.basic.Card(
         modifier = Modifier
             .fillMaxWidth()
             .animateContentSize()
@@ -509,11 +632,10 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
                     android.widget.Toast.makeText(context, "已复制：${room.name}", android.widget.Toast.LENGTH_SHORT).show()
                 }
             ),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isNowFree)
-                MaterialTheme.colorScheme.surfaceContainerLow
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = if (isNowFree)
+                MiuixTheme.colorScheme.surfaceVariant
             else
-                MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.6f)
+                MiuixTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
         )
     ) {
         Row(
@@ -526,7 +648,7 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
             Column(modifier = Modifier.width(92.dp)) {
                 Text(
                     room.name,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = MiuixTheme.textStyles.body1,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -535,8 +657,8 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
                 Spacer(Modifier.height(2.dp))
                 Text(
                     "${room.size}座",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
                 if (tags.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
@@ -549,7 +671,7 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
                             Text(
                                 label,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                                style = MaterialTheme.typography.labelSmall,
+                                style = MiuixTheme.textStyles.footnote1,
                                 fontSize = 10.sp,
                                 color = color,
                                 fontWeight = FontWeight.Bold
@@ -571,11 +693,11 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
                     val isCurrent = index == currentPeriod
                     val isPast = currentPeriod >= 0 && index < currentPeriod
 
-                    val bgColor = if (isFree) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.errorContainer
+                    val bgColor = if (isFree) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    else MiuixTheme.colorScheme.error.copy(alpha = 0.12f)
 
-                    val txtColor = if (isFree) MaterialTheme.colorScheme.onPrimaryContainer
-                    else MaterialTheme.colorScheme.onErrorContainer
+                    val txtColor = if (isFree) MiuixTheme.colorScheme.primary
+                    else MiuixTheme.colorScheme.error
 
                     Box(
                         modifier = Modifier
@@ -584,7 +706,7 @@ private fun SmartRoomCard(room: RoomInfo, currentPeriod: Int) {
                             .then(
                                 if (isCurrent) Modifier.border(
                                     1.5.dp,
-                                    MaterialTheme.colorScheme.primary,
+                                    MiuixTheme.colorScheme.primary,
                                     RoundedCornerShape(3.dp)
                                 ) else Modifier
                             )

@@ -1,5 +1,19 @@
 package com.xjtu.toolbox.browser
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+
 import android.annotation.SuppressLint
 import android.app.DownloadManager
 import android.content.Context
@@ -19,7 +33,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,7 +110,6 @@ private fun syncCookiesToWebView(login: XJTULogin?) {
 }
 
 @SuppressLint("SetJavaScriptEnabled")
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserScreen(
     initialUrl: String = "",
@@ -121,15 +133,9 @@ fun BrowserScreen(
     Scaffold(
         topBar = {
             Column {
-                TopAppBar(
-                    title = {
-                        Text(
-                            pageTitle,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.titleSmall
-                        )
-                    },
+                SmallTopAppBar(
+                    title = pageTitle,
+                    color = MiuixTheme.colorScheme.surfaceVariant,
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.Default.Close, contentDescription = "关闭")
@@ -153,9 +159,10 @@ fun BrowserScreen(
                 // 进度条
                 if (isLoading) {
                     LinearProgressIndicator(
-                        progress = { progress / 100f },
-                        modifier = Modifier.fillMaxWidth().height(2.dp),
-                        trackColor = Color.Transparent
+                        progress = progress / 100f,
+                        modifier = Modifier.fillMaxWidth(),
+                        height = 2.dp,
+                        colors = ProgressIndicatorDefaults.progressIndicatorColors(backgroundColor = Color.Transparent)
                     )
                 }
             }
@@ -163,7 +170,6 @@ fun BrowserScreen(
         bottomBar = {
             // URL 输入栏
             Surface(
-                tonalElevation = 3.dp,
                 shadowElevation = 4.dp
             ) {
                 Row(
@@ -173,21 +179,20 @@ fun BrowserScreen(
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
+                    top.yukonga.miuix.kmp.basic.TextField(
                         value = editingUrl,
                         onValueChange = { editingUrl = it },
                         modifier = Modifier.weight(1f),
                         singleLine = true,
-                        shape = RoundedCornerShape(24.dp),
-                        textStyle = MaterialTheme.typography.bodySmall,
+                        label = "输入网址",
+                        textStyle = MiuixTheme.textStyles.footnote1,
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                         keyboardActions = KeyboardActions(
                             onGo = {
                                 val url = normalizeUrl(editingUrl)
                                 webViewRef?.loadUrl(url)
                             }
-                        ),
-                        placeholder = { Text("输入网址", style = MaterialTheme.typography.bodySmall) }
+                        )
                     )
                 }
             }

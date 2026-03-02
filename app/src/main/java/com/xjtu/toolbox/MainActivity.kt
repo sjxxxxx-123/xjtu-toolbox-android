@@ -1,4 +1,4 @@
-package com.xjtu.toolbox
+﻿package com.xjtu.toolbox
 
 import android.os.Bundle
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -13,6 +13,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateDp
+import androidx.compose.foundation.interaction.MutableInteractionSource
+
+import top.yukonga.miuix.kmp.utils.SinkFeedback
+import top.yukonga.miuix.kmp.utils.PressFeedbackType
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -25,10 +32,46 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
-import androidx.compose.material3.*
+import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.extra.SuperDialog
+import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
+import top.yukonga.miuix.kmp.basic.ProgressIndicatorDefaults
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.LinearProgressIndicator
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
+import top.yukonga.miuix.kmp.basic.SnackbarDuration
+import top.yukonga.miuix.kmp.basic.SnackbarHost
+import top.yukonga.miuix.kmp.basic.SnackbarHostState
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarItem
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.SmallTopAppBar
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.ScrollBehavior
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.navigationevent.NavigationEventDispatcher
+import androidx.navigationevent.NavigationEventDispatcherOwner
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -37,6 +80,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -49,6 +93,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.xjtu.toolbox.auth.*
@@ -76,7 +121,16 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             XJTUToolBoxTheme {
-                AppNavigation(onReady = { isAppReady = true })
+                val navEvtDispatcherOwner = remember {
+                    object : NavigationEventDispatcherOwner {
+                        override val navigationEventDispatcher = NavigationEventDispatcher()
+                    }
+                }
+                CompositionLocalProvider(
+                    LocalNavigationEventDispatcherOwner provides navEvtDispatcherOwner
+                ) {
+                    AppNavigation(onReady = { isAppReady = true })
+                }
             }
         }
     }
@@ -99,6 +153,7 @@ object Routes {
     const val SCORE_REPORT = "score_report"
     const val CURRICULUM = "curriculum"
     const val PAYMENT_CODE = "payment_code"
+    const val TRANSCRIPT = "transcript"
     const val BROWSER = "browser?url={url}"
 
     fun login(type: LoginType, target: String) = "login/${type.name}/$target"
@@ -128,6 +183,7 @@ class AppLoginState {
     var ywtbLogin by mutableStateOf<YwtbLogin?>(null)
     var libraryLogin by mutableStateOf<LibraryLogin?>(null)
     var campusCardLogin by mutableStateOf<CampusCardLogin?>(null)
+    var dzpzLogin by mutableStateOf<com.xjtu.toolbox.auth.DzpzLogin?>(null)
 
     // 持久化 CookieJar（由外部传入，整个 App 共享一个实例）
     var persistentCookieJar: com.xjtu.toolbox.util.PersistentCookieJar? = null
@@ -185,7 +241,7 @@ class AppLoginState {
 
     val loginCount: Int
         get() = listOfNotNull(
-            attendanceLogin, jwxtLogin, jwappLogin, ywtbLogin, libraryLogin, campusCardLogin
+            attendanceLogin, jwxtLogin, jwappLogin, ywtbLogin, libraryLogin, campusCardLogin, dzpzLogin
         ).size
 
     /** 是否为需要校内网络（WebVPN）的服务 */
@@ -247,6 +303,7 @@ class AppLoginState {
             LoginType.YWTB -> ywtbLogin
             LoginType.LIBRARY -> libraryLogin
             LoginType.CAMPUS_CARD -> campusCardLogin
+            LoginType.DZPZ -> dzpzLogin
         } ?: return null
 
         // Token-based 系统：仅检查有效性，不做任何网络请求
@@ -288,6 +345,7 @@ class AppLoginState {
             is YwtbLogin -> ywtbLogin = login
             is LibraryLogin -> libraryLogin = login
             is CampusCardLogin -> campusCardLogin = login
+            is com.xjtu.toolbox.auth.DzpzLogin -> dzpzLogin = login
         }
         // [F1] 立即持久化关键状态（防止进程被杀后丢失）
         credentialStoreRef?.let { store ->
@@ -407,6 +465,7 @@ class AppLoginState {
             LoginType.YWTB -> ywtbLogin
             LoginType.ATTENDANCE -> attendanceLogin
             LoginType.JWXT -> jwxtLogin
+            LoginType.DZPZ -> dzpzLogin
             else -> null
         }
         if (existingLogin != null) {
@@ -417,6 +476,7 @@ class AppLoginState {
                         is YwtbLogin -> existingLogin.reAuthenticate()
                         is AttendanceLogin -> existingLogin.reAuthenticate()
                         is JwxtLogin -> existingLogin.reAuthenticate()
+                        is com.xjtu.toolbox.auth.DzpzLogin -> existingLogin.reAuthenticate()
                         else -> false
                     }
                 }
@@ -435,6 +495,7 @@ class AppLoginState {
                 LoginType.YWTB -> ywtbLogin = null
                 LoginType.ATTENDANCE -> attendanceLogin = null
                 LoginType.JWXT -> jwxtLogin = null
+                LoginType.DZPZ -> dzpzLogin = null
                 else -> {}
             }
         }
@@ -525,6 +586,31 @@ class AppLoginState {
                 }
             }
             android.util.Log.w("AppLoginState", "autoLogin($type): all 3 attempts failed: ${lastException?.message}")
+            // [FALLBACK] 校园网直连全部超时 → 强制切换 WebVPN 重试一次
+            if (isInternalService(type) && isOnCampus == true &&
+                (lastException is java.net.SocketTimeoutException ||
+                 lastException?.message?.contains("timeout", ignoreCase = true) == true)) {
+                android.util.Log.w("AppLoginState", "autoLogin($type): campus direct all timed out, fallback to WebVPN")
+                isOnCampus = false
+                campusDetectTime = 0L // 清除缓存，下次重新检测
+                if (vpnClient == null) loginWebVpn()
+                val vpnFallbackClient = vpnClient
+                if (vpnFallbackClient != null) {
+                    try {
+                        val login = type.createLogin(vpnFallbackClient, visitorId, true, cachedRsaKey)
+                        val result = login.login(savedUsername, savedPassword)
+                        if (result.state == LoginState.SUCCESS) {
+                            if (firstVisitorId == null) firstVisitorId = login.fpVisitorId
+                            if (cachedRsaKey == null) cachedRsaKey = login.getRsaPublicKey()
+                            cache(login, savedUsername)
+                            android.util.Log.d("AppLoginState", "autoLogin($type): WebVPN fallback SUCCESS")
+                            return@withContext login
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("AppLoginState", "autoLogin($type): WebVPN fallback also failed: ${e.message}")
+                    }
+                }
+            }
             null
         }
     }
@@ -659,7 +745,7 @@ class AppLoginStateViewModel(application: android.app.Application) : androidx.li
         // 注入持久化组件（无需 LaunchedEffect，ViewModel 创建时即完成）
         loginState.persistentCookieJar = persistentCookieJar
         loginState.vpnCookieJar = vpnCookieJar
-        // 恢复凭据（非 suspend，可在 init 调用）
+        // 恢复凭据（同步执行，确保 Compose 首帧读取到正确状态）
         loginState.restoreCredentials(credentialStore)
     }
 }
@@ -777,9 +863,12 @@ fun AppNavigation(onReady: () -> Unit = {}) {
     var isRestoring by remember { mutableStateOf(false) }
     var restoreStep by remember { mutableStateOf("") }
     val restoreScope = rememberCoroutineScope()
+    val view = LocalView.current
     LaunchedEffect(Unit) {
-        // [VM] restoreCredentials 已在 ViewModel init 中完成，无需重复调用
-        // Splash 立即消失，进入主界面
+        // 等待首帧实际绘制到屏幕后再解除 Splash（避免白屏闪烁）
+        kotlinx.coroutines.suspendCancellableCoroutine<Unit> { cont ->
+            view.post { cont.resume(Unit, null) }
+        }
         onReady()
 
         // 有凭据且尚未建立任何登录会话 → 启动后台恢复
@@ -959,7 +1048,7 @@ fun AppNavigation(onReady: () -> Unit = {}) {
     // ── 用户协议弹窗（首次启动或未签署时强制展示） ──
     var eulaAccepted by remember { mutableStateOf(credentialStore.isEulaAccepted()) }
     if (!eulaAccepted) {
-        EulaDialog(onAccept = {
+        EulaScreen(onAccept = {
             credentialStore.acceptEula()
             eulaAccepted = true
         })
@@ -967,25 +1056,36 @@ fun AppNavigation(onReady: () -> Unit = {}) {
     }
 
     // ── v2.0 更新公告弹窗（一次性） ──
-    var showUpdateNotice by remember { mutableStateOf(!credentialStore.isUpdateNoticeSeen(BuildConfig.VERSION_NAME)) }
-    if (showUpdateNotice) {
-        UpdateNoticeDialog(onDismiss = {
+    val showUpdateNotice = remember { mutableStateOf(!credentialStore.isUpdateNoticeSeen(BuildConfig.VERSION_NAME)) }
+    if (showUpdateNotice.value) {
+        UpdateNoticeDialog(show = showUpdateNotice, onDismiss = {
             credentialStore.markUpdateNoticeSeen(BuildConfig.VERSION_NAME)
-            showUpdateNotice = false
+            showUpdateNotice.value = false
         })
     }
-
-    // 非阻塞提示条在 MainScreen 底部显示
 
     NavHost(
         navController = navController,
         startDestination = Routes.MAIN,
-        enterTransition = { androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(300)) +
-            androidx.compose.animation.slideInHorizontally(initialOffsetX = { it / 4 }, animationSpec = androidx.compose.animation.core.tween(300)) },
-        exitTransition = { androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(200)) },
-        popEnterTransition = { androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(300)) },
-        popExitTransition = { androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(200)) +
-            androidx.compose.animation.slideOutHorizontally(targetOffsetX = { it / 4 }, animationSpec = androidx.compose.animation.core.tween(200)) }
+        enterTransition = {
+            // 正向进入：从右侧滑入
+            slideInHorizontally(spring(dampingRatio = 0.86f, stiffness = 500f)) { it } +
+            fadeIn(animationSpec = spring(dampingRatio = 0.86f, stiffness = 500f))
+        },
+        exitTransition = {
+            // 正向退出：旧页面向左推移并轻微淡出
+            slideOutHorizontally(spring(dampingRatio = 0.86f, stiffness = 500f)) { -it / 4 } +
+            fadeOut(animationSpec = spring(dampingRatio = 0.86f, stiffness = 500f), targetAlpha = 0.5f)
+        },
+        popEnterTransition = {
+            // 返回进入：上一页从左侧恢复
+            slideInHorizontally(spring(dampingRatio = 0.86f, stiffness = 500f)) { -it / 4 } +
+            fadeIn(animationSpec = spring(dampingRatio = 0.86f, stiffness = 500f), initialAlpha = 0.5f)
+        },
+        popExitTransition = {
+            // 返回退出：当前页向右滑出，不含 fadeOut（避免手势拖拽时淡化）
+            slideOutHorizontally(spring(dampingRatio = 0.86f, stiffness = 500f)) { it }
+        }
     ) {
 
         composable(Routes.MAIN) {
@@ -1018,20 +1118,33 @@ fun AppNavigation(onReady: () -> Unit = {}) {
             )
         }
 
-        composable(Routes.EMPTY_ROOM) { EmptyRoomScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.NOTIFICATION) { NotificationScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) { launchSingleTop = true } }) }
-        composable(Routes.ATTENDANCE) { loginState.attendanceLogin?.let { AttendanceScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() } }
-        composable(Routes.SCHEDULE) { ScheduleScreen(login = loginState.jwxtLogin, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) }
-        composable(Routes.JWAPP_SCORE) { JwappScoreScreen(login = loginState.jwappLogin, jwxtLogin = loginState.jwxtLogin, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) }
-        composable(Routes.JUDGE) { loginState.jwxtLogin?.let { JudgeScreen(login = it, username = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() } }
-        composable(Routes.LIBRARY) { loginState.libraryLogin?.let { LibraryScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() } }
-        composable(Routes.CAMPUS_CARD) { loginState.campusCardLogin?.let { com.xjtu.toolbox.card.CampusCardScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() } }
+        composable(Routes.EMPTY_ROOM) {
+            EmptyRoomScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.NOTIFICATION) {
+            NotificationScreen(onBack = { navController.popBackStack() }, onNavigate = { navController.navigate(it) { launchSingleTop = true } })
+        }
+        composable(Routes.ATTENDANCE) {
+            loginState.attendanceLogin?.let { AttendanceScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.SCHEDULE) {
+            ScheduleScreen(login = loginState.jwxtLogin, studentId = loginState.activeUsername, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.JWAPP_SCORE) {
+            JwappScoreScreen(login = loginState.jwappLogin, jwxtLogin = loginState.jwxtLogin, studentId = loginState.activeUsername, onBack = { navController.popBackStack() })
+        }
+        composable(Routes.JUDGE) {
+            loginState.jwxtLogin?.let { JudgeScreen(login = it, username = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.LIBRARY) {
+            loginState.libraryLogin?.let { LibraryScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.CAMPUS_CARD) {
+            loginState.campusCardLogin?.let { com.xjtu.toolbox.card.CampusCardScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
         dialog(
             Routes.PAYMENT_CODE,
-            dialogProperties = androidx.compose.ui.window.DialogProperties(
-                usePlatformDefaultWidth = false,
-                dismissOnClickOutside = false  // 防止加载中误触关闭
-            )
+            dialogProperties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             val client = loginState.getSharedClient()
             if (client != null) {
@@ -1040,8 +1153,15 @@ fun AppNavigation(onReady: () -> Unit = {}) {
                 LaunchedEffect(Unit) { navController.popBackStack() }
             }
         }
-        composable(Routes.SCORE_REPORT) { loginState.jwxtLogin?.let { ScoreReportScreen(login = it, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() } }
-        composable(Routes.CURRICULUM) { loginState.jwxtLogin?.let { com.xjtu.toolbox.jwapp.CurriculumScreen(jwxtLogin = it, jwappLogin = loginState.jwappLogin, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() } }
+        composable(Routes.SCORE_REPORT) {
+            loginState.jwxtLogin?.let { ScoreReportScreen(login = it, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.CURRICULUM) {
+            loginState.jwxtLogin?.let { com.xjtu.toolbox.jwapp.CurriculumScreen(jwxtLogin = it, jwappLogin = loginState.jwappLogin, studentId = loginState.activeUsername, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.TRANSCRIPT) {
+            loginState.dzpzLogin?.let { com.xjtu.toolbox.dzpz.TranscriptScreen(login = it, onBack = { navController.popBackStack() }) } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
         composable(
             Routes.BROWSER,
             arguments = listOf(navArgument("url") { type = NavType.StringType; defaultValue = "" })
@@ -1058,15 +1178,12 @@ fun AppNavigation(onReady: () -> Unit = {}) {
 
 // ── 主屏幕（底部导航栏）──────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MainScreen(navController: NavHostController, loginState: AppLoginState, credentialStore: CredentialStore, isRestoring: Boolean = false, restoreStep: String = "") {
     var selectedTabOrdinal by rememberSaveable { mutableIntStateOf(0) }
     val selectedTab = BottomTab.entries[selectedTabOrdinal.coerceIn(0, BottomTab.entries.size - 1)]
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-
-    // 返回键：非 HOME 标签先回到 HOME；HOME 标签双击退出 App
     var lastBackPressTime by remember { mutableLongStateOf(0L) }
     BackHandler {
         if (selectedTab != BottomTab.HOME) {
@@ -1084,7 +1201,7 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
     }
 
     // 自动登录状态
-    var isAutoLogging by remember { mutableStateOf(false) }
+    val showAutoLoginSheet = remember { mutableStateOf(false) }
     var autoLoginMessage by remember { mutableStateOf("") }
     var autoLoginJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
@@ -1115,7 +1232,7 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
             navController.navigate(target) { launchSingleTop = true }
         } else if (loginState.hasCredentials) {
             // 有保存的凭据，尝试自动登录
-            isAutoLogging = true
+            showAutoLoginSheet.value = true
             autoLoginMessage = "正在自动登录${type.label}..."
             autoLoginJob?.cancel() // 取消旧的登录任务，避免竞态
             autoLoginJob = scope.launch {
@@ -1123,7 +1240,7 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
                     val result = kotlinx.coroutines.withTimeoutOrNull(15_000L) {
                         loginState.autoLogin(type)
                     }
-                    isAutoLogging = false
+                    showAutoLoginSheet.value = false
                     autoLoginJob = null
                     if (result != null) {
                         navController.navigate(target) { launchSingleTop = true }
@@ -1143,7 +1260,7 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
                         }
                     }
                 } catch (e: Exception) {
-                    isAutoLogging = false
+                    showAutoLoginSheet.value = false
                     autoLoginJob = null
                     // 离线可用路由降级
                     if (target in offlineCapableRoutes) {
@@ -1153,7 +1270,7 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
                     } else {
                         val msg = when (e) {
                             is java.io.IOException -> "网络不佳，请检查网络连接"
-                            else -> "${type.label}登录异常: ${e.message?.take(30)}"
+                            else -> "${type.label}登录失败，请稍后重试"
                         }
                         scope.launch { snackbarHostState.showSnackbar(msg, duration = SnackbarDuration.Short) }
                         selectedTabOrdinal = BottomTab.PROFILE.ordinal
@@ -1169,27 +1286,41 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
         }
     }
 
+    // ── 各 Tab 独立的滚动折叠状态 ──
+    val homeScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val academicScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val toolsScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+    val profileScrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
+
+    // HOME 大标题
+    val homeGreeting = if (loginState.isLoggedIn) {
+        val name = loginState.nsaProfile?.name ?: loginState.ywtbUserInfo?.userName ?: loginState.cachedNickname
+        if (!name.isNullOrBlank()) "你好, $name" else "你好"
+    } else "岱宗盒子"
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            if (selectedTab != BottomTab.HOME) {
-                CenterAlignedTopAppBar(
-                    title = {
-                        Text(
-                            when (selectedTab) {
-                                BottomTab.ACADEMIC -> "教务服务"
-                                BottomTab.TOOLS -> "实用工具"
-                                BottomTab.PROFILE -> "我的"
-                                else -> ""
-                            },
-                            fontWeight = FontWeight.Bold
-                        )
-                    },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                )
-            }
+            TopAppBar(
+                title = when (selectedTab) {
+                    BottomTab.HOME -> "岱宗盒子"
+                    BottomTab.ACADEMIC -> "教务服务"
+                    BottomTab.TOOLS -> "实用工具"
+                    BottomTab.PROFILE -> "我的"
+                },
+                largeTitle = when (selectedTab) {
+                    BottomTab.HOME -> homeGreeting
+                    BottomTab.ACADEMIC -> "教务服务"
+                    BottomTab.TOOLS -> "实用工具"
+                    BottomTab.PROFILE -> "我的"
+                },
+                scrollBehavior = when (selectedTab) {
+                    BottomTab.HOME -> homeScrollBehavior
+                    BottomTab.ACADEMIC -> academicScrollBehavior
+                    BottomTab.TOOLS -> toolsScrollBehavior
+                    BottomTab.PROFILE -> profileScrollBehavior
+                }
+            )
         },
         bottomBar = {
             NavigationBar {
@@ -1197,48 +1328,65 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
                     NavigationBarItem(
                         selected = selectedTab == tab,
                         onClick = { selectedTabOrdinal = tab.ordinal },
-                        icon = {
-                            Icon(
-                                if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
-                                contentDescription = tab.label
-                            )
-                        },
-                        label = { Text(tab.label) }
+                        icon = if (selectedTab == tab) tab.selectedIcon else tab.unselectedIcon,
+                        label = tab.label
                     )
                 }
             }
         }
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
-            AnimatedContent(
-                targetState = selectedTab,
-                transitionSpec = {
-                    val goingRight = targetState.ordinal > initialState.ordinal
-                    (slideInHorizontally(tween(280)) { if (goingRight) it else -it } + fadeIn(tween(280))) togetherWith
-                    (slideOutHorizontally(tween(280)) { if (goingRight) -it else it } + fadeOut(tween(180)))
-                },
-                label = "tabContent"
-            ) { tab ->
-                // 需要联网的无登录路由（空闲教室、通知公告等纯网络功能）
-                val networkRequiredRoutes = setOf(Routes.EMPTY_ROOM, Routes.NOTIFICATION)
-                val onNavigateWithNetCheck: (String) -> Unit = { route ->
-                    if (route in networkRequiredRoutes) {
-                        val cm2 = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
-                        val online = cm2?.activeNetwork != null && cm2.getNetworkCapabilities(cm2.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
-                        if (online) {
-                            navController.navigate(route) { launchSingleTop = true }
-                        } else {
-                            scope.launch { snackbarHostState.showSnackbar("该功能需要联网使用，请检查网络连接", duration = SnackbarDuration.Short) }
-                        }
-                    } else {
+            // 需要联网的无登录路由（空闲教室、通知公告等纯网络功能）
+            val networkRequiredRoutes = setOf(Routes.EMPTY_ROOM, Routes.NOTIFICATION)
+            val onNavigateWithNetCheck: (String) -> Unit = { route ->
+                if (route in networkRequiredRoutes) {
+                    val cm2 = context.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                    val online = cm2?.activeNetwork != null && cm2.getNetworkCapabilities(cm2.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                    if (online) {
                         navController.navigate(route) { launchSingleTop = true }
+                    } else {
+                        scope.launch { snackbarHostState.showSnackbar("该功能需要联网使用，请检查网络连接", duration = SnackbarDuration.Short) }
                     }
+                } else {
+                    navController.navigate(route) { launchSingleTop = true }
                 }
-                when (tab) {
-                    BottomTab.HOME -> HomeTab(loginState, isRestoring = isRestoring, onNavigate = onNavigateWithNetCheck, onNavigateWithLogin = ::navigateWithLogin, onNavigateToProfile = { selectedTabOrdinal = BottomTab.PROFILE.ordinal })
-                    BottomTab.ACADEMIC -> AcademicTab(loginState, ::navigateWithLogin)
-                    BottomTab.TOOLS -> ToolsTab(onNavigateWithNetCheck)
-                    BottomTab.PROFILE -> ProfileTab(loginState, ::navigateWithLogin, credentialStore)
+            }
+            var composedTabs by remember { mutableStateOf(setOf(selectedTab)) }
+            LaunchedEffect(selectedTab) { composedTabs = composedTabs + selectedTab }
+            Box(Modifier.fillMaxSize()) {
+                BottomTab.entries.forEach { tab ->
+                    key(tab) {
+                        if (tab in composedTabs) {
+                            val isActive = selectedTab == tab
+                            val tabAlpha by animateFloatAsState(
+                                targetValue = if (isActive) 1f else 0f,
+                                animationSpec = tween(if (isActive) 220 else 150),
+                                label = "tabAlpha"
+                            )
+                            Box(
+                                Modifier.fillMaxSize()
+                                    .zIndex(if (isActive) 1f else 0f)
+                                    .graphicsLayer { alpha = tabAlpha }
+                                    .pointerInput(isActive) {
+                                        if (!isActive) {
+                                            awaitPointerEventScope {
+                                                while (true) {
+                                                    awaitPointerEvent(PointerEventPass.Initial)
+                                                        .changes.forEach { it.consume() }
+                                                }
+                                            }
+                                        }
+                                    }
+                            ) {
+                                when (tab) {
+                                    BottomTab.HOME -> HomeTab(loginState, isRestoring = isRestoring, onNavigate = onNavigateWithNetCheck, onNavigateWithLogin = ::navigateWithLogin, onNavigateToProfile = { selectedTabOrdinal = BottomTab.PROFILE.ordinal }, scrollBehavior = homeScrollBehavior)
+                                    BottomTab.ACADEMIC -> AcademicTab(loginState, ::navigateWithLogin, scrollBehavior = academicScrollBehavior)
+                                    BottomTab.TOOLS -> ToolsTab(onNavigateWithNetCheck, scrollBehavior = toolsScrollBehavior)
+                                    BottomTab.PROFILE -> ProfileTab(loginState, ::navigateWithLogin, credentialStore, scrollBehavior = profileScrollBehavior)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1252,56 +1400,54 @@ private fun MainScreen(navController: NavHostController, loginState: AppLoginSta
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    tonalElevation = 2.dp
+                    color = MiuixTheme.colorScheme.secondaryContainer
                 ) {
                     Row(
                         Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.primary)
+                        CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
                         Spacer(Modifier.width(12.dp))
                         Text(
                             restoreStep.ifEmpty { "正在恢复登录..." },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSecondaryContainer
                         )
                     }
                 }
             }
 
-            // 自动登录加载遮罩（可取消，15s超时）
-            if (isAutoLogging) {
-                Surface(
-                    modifier = Modifier.fillMaxSize().clickable {
-                        // 点击空白区域取消
-                        autoLoginJob?.cancel()
-                        isAutoLogging = false
-                        autoLoginJob = null
-                    },
-                    color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.4f)
+            // 自动登录 SuperBottomSheet（可取消，15s超时）
+            SuperBottomSheet(
+                show = showAutoLoginSheet,
+                title = "自动登录",
+                onDismissRequest = {
+                    autoLoginJob?.cancel()
+                    showAutoLoginSheet.value = false
+                    autoLoginJob = null
+                }
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 30.dp)
+                        .navigationBarsPadding(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Column(
-                        Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.height(12.dp))
-                        Text(autoLoginMessage, color = MaterialTheme.colorScheme.inverseOnSurface, style = MaterialTheme.typography.bodyMedium)
-                        Spacer(Modifier.height(16.dp))
-                        OutlinedButton(
-                            onClick = {
-                                autoLoginJob?.cancel()
-                                isAutoLogging = false
-                                autoLoginJob = null
-                            },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.inverseOnSurface),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.inverseOnSurface.copy(alpha = 0.5f))
-                        ) {
-                            Text("取消")
-                        }
-                    }
+                    Text(
+                        autoLoginMessage,
+                        style = MiuixTheme.textStyles.body2,
+                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        textAlign = TextAlign.Center
+                    )
+                    CircularProgressIndicator()
+                    Button(
+                        onClick = {
+                            autoLoginJob?.cancel()
+                            showAutoLoginSheet.value = false
+                            autoLoginJob = null
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("取消") }
                 }
             }
         }
@@ -1318,19 +1464,22 @@ private fun HomeTab(
     isRestoring: Boolean = false,
     onNavigate: (String) -> Unit,
     onNavigateWithLogin: (String, LoginType) -> Unit,
-    onNavigateToProfile: () -> Unit = {}
+    onNavigateToProfile: () -> Unit = {},
+    scrollBehavior: ScrollBehavior? = null
 ) {
     Column(
         Modifier
             .fillMaxSize()
+            .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
+            .overScrollVertical()
             .verticalScroll(rememberScrollState())
     ) {
-        // ── Zone A: Greeting Header ──
+        // ── Zone A: 状态信息行（日期 + 系统状态，大标题已移至 TopAppBar）──
         Column(
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
-                .padding(top = 16.dp)
+                .padding(top = 8.dp)
         ) {
             // 日期行
             val today = java.time.LocalDate.now()
@@ -1339,29 +1488,13 @@ private fun HomeTab(
             )
             Text(
                 "${today.monthValue}月${today.dayOfMonth}日  $weekDay",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(Modifier.height(2.dp))
-            // 问候语 — 优先用 NSA 缓存全名（秒出），避免闪变
-            Text(
-                if (loginState.isLoggedIn) {
-                    val nsaName = loginState.nsaProfile?.name
-                    val ywtbName = loginState.ywtbUserInfo?.userName
-                    val name = nsaName ?: ywtbName
-                    if (!name.isNullOrBlank()) {
-                        "你好, $name"
-                    } else if (!loginState.cachedNickname.isNullOrBlank()) {
-                        "你好, ${loginState.cachedNickname}"
-                    } else "你好"
-                } else "岱宗盒子",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
+                style = MiuixTheme.textStyles.body1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
             // 状态 or 登录提示
             if (!loginState.isLoggedIn) {
                 Spacer(Modifier.height(12.dp))
-                FilledTonalButton(onClick = onNavigateToProfile) {
+                Button(onClick = onNavigateToProfile) {
                     Icon(Icons.Default.AccountCircle, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text("登录以使用全部功能")
@@ -1374,8 +1507,8 @@ private fun HomeTab(
                         isRestoring -> "正在连接..."
                         else -> "离线模式"
                     },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
             }
         }
@@ -1386,21 +1519,27 @@ private fun HomeTab(
         Column(Modifier.padding(horizontal = 16.dp)) {
             Text(
                 "快捷入口",
-                style = MaterialTheme.typography.titleMedium,
+                style = MiuixTheme.textStyles.headline1,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
             )
+            val colorGreen = androidx.compose.ui.graphics.Color(0xFF2E7D32)
+            val colorOrange = androidx.compose.ui.graphics.Color(0xFFE65100)
+            val colorPurple = androidx.compose.ui.graphics.Color(0xFF7B1FA2)
+            val colorTeal = androidx.compose.ui.graphics.Color(0xFF00796B)
+            val colorAmber = androidx.compose.ui.graphics.Color(0xFFF9A825)
+            val colorIndigo = androidx.compose.ui.graphics.Color(0xFF283593)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                HomeQuickAction(Icons.Default.CreditCard, "校园卡", MaterialTheme.colorScheme.primary) {
+                HomeQuickAction(Icons.Default.CreditCard, "校园卡", colorGreen) {
                     onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD)
                 }
-                HomeQuickAction(Icons.Default.CalendarMonth, "课表", MaterialTheme.colorScheme.secondary) {
+                HomeQuickAction(Icons.Default.CalendarMonth, "课表", colorIndigo) {
                     onNavigateWithLogin(Routes.SCHEDULE, LoginType.JWXT)
                 }
-                HomeQuickAction(Icons.Default.QrCode, "付款码", MaterialTheme.colorScheme.tertiary) {
+                HomeQuickAction(Icons.Default.QrCode, "付款码", colorTeal) {
                     onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.JWXT)
                 }
-                HomeQuickAction(Icons.Default.Notifications, "通知", MaterialTheme.colorScheme.error) {
+                HomeQuickAction(Icons.Default.Notifications, "通知", colorOrange) {
                     onNavigate(Routes.NOTIFICATION)
                 }
             }
@@ -1408,11 +1547,274 @@ private fun HomeTab(
 
         Spacer(Modifier.height(24.dp))
 
-        // ── Zone C: All Services (2-column) ──
+        // ── Zone B+: 智能卡片 ──
+        run {
+            val context = LocalContext.current
+            val isSummer = com.xjtu.toolbox.util.XjtuTime.isSummerTime()
+            // 今日课表数据（从 DataCache 离线读取）
+            var todayCoursesState by remember { mutableStateOf<List<CourseCardInfo>?>(null) }
+            // 缓存余额数据（从 SharedPreferences 读取）
+            val cardPrefs = remember { context.getSharedPreferences("campus_card", 0) }
+            var cachedBalance by remember { mutableStateOf(cardPrefs.getFloat("card_balance_cache", -1f)) }
+            val cachedName = remember { cardPrefs.getString("card_name_cache", "") ?: "" }
+            val cachedRecentTx = remember {
+                val json = cardPrefs.getString("card_recent_tx_cache", null)
+                if (json != null) runCatching {
+                    com.google.gson.Gson().fromJson(json, Array<com.xjtu.toolbox.card.Transaction>::class.java)?.toList()
+                }.getOrNull() ?: emptyList()
+                else emptyList()
+            }
+            var isRefreshingCard by remember { mutableStateOf(false) }
+
+            LaunchedEffect(Unit) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                    try {
+                        val dataCache = com.xjtu.toolbox.util.DataCache(context)
+                        val gson = com.google.gson.Gson()
+                        // 获取学期列表（按最新的来）
+                        val termListJson = dataCache.get("schedule_term_list", Long.MAX_VALUE)
+                        val termList = if (termListJson != null) {
+                            gson.fromJson(termListJson, Array<String>::class.java)?.toList() ?: emptyList()
+                        } else emptyList<String>()
+                        val termCode = termList.firstOrNull() ?: return@withContext
+                        // 获取课程
+                        val coursesJson = dataCache.get("schedule_$termCode", Long.MAX_VALUE) ?: return@withContext
+                        val courses = gson.fromJson(coursesJson, Array<com.xjtu.toolbox.schedule.CourseItem>::class.java)?.toList() ?: return@withContext
+                        // 获取学期开始日期
+                        val startDateJson = dataCache.get("start_date_$termCode", Long.MAX_VALUE)
+                        val startDateStr = if (startDateJson != null) gson.fromJson(startDateJson, String::class.java) else null
+                        val startDate = if (!startDateStr.isNullOrBlank()) runCatching { java.time.LocalDate.parse(startDateStr) }.getOrNull() else null
+                        if (startDate == null) return@withContext
+                        val today = java.time.LocalDate.now()
+                        val daysBetween = java.time.temporal.ChronoUnit.DAYS.between(startDate, today)
+                        val currentWeek = ((daysBetween / 7) + 1).toInt()
+                        val todayDow = today.dayOfWeek.value  // 1=Mon ... 7=Sun
+                        val todayCourses = courses
+                            .filter { it.dayOfWeek == todayDow && it.isInWeek(currentWeek) }
+                            .sortedBy { it.startSection }
+                            .map { CourseCardInfo(it.courseName, it.location, it.startSection, it.endSection) }
+                        todayCoursesState = todayCourses
+                    } catch (_: Exception) { todayCoursesState = emptyList() }
+                }
+            }
+
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                // ═══ 今日课表智能卡片 ═══
+                val todayCourses = todayCoursesState
+                if (todayCourses != null) {
+                    val now = java.time.LocalTime.now()
+                    // 判断课程状态
+                    val currentCourse = todayCourses.firstOrNull { course ->
+                        val startTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(course.startSection, isSummer)?.start
+                        val endTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(course.endSection, isSummer)?.end
+                        startTime != null && endTime != null && now >= startTime && now <= endTime
+                    }
+                    val nextCourse = todayCourses.firstOrNull { course ->
+                        val startTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(course.startSection, isSummer)?.start
+                        startTime != null && now < startTime
+                    }
+                    val allDone = todayCourses.isNotEmpty() && currentCourse == null && nextCourse == null
+
+                    // 智能标题 + 颜色
+                    val (cardTitle, statusHint, accentColor) = when {
+                        todayCourses.isEmpty() -> Triple("今日课程", "今天没有课，好好休息 🎉", MiuixTheme.colorScheme.primary)
+                        currentCourse != null -> {
+                            val endTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(currentCourse.endSection, isSummer)?.end
+                            val endStr = endTime?.toString() ?: ""
+                            Triple("正在上课", "${currentCourse.name}  $endStr 下课", MiuixTheme.colorScheme.primary)
+                        }
+                        nextCourse != null -> {
+                            val startTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(nextCourse.startSection, isSummer)?.start
+                            val minutesToNext = if (startTime != null) java.time.Duration.between(now, startTime).toMinutes() else -1
+                            val timeHint = if (minutesToNext in 1..60) "${minutesToNext}分钟后" else startTime?.toString() ?: ""
+                            Triple("下节课", "$timeHint · ${nextCourse.name}", androidx.compose.ui.graphics.Color(0xFF2E7D32))
+                        }
+                        allDone -> Triple("今日课程", "今天的课已全部结束", MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        else -> Triple("今日课程", "", MiuixTheme.colorScheme.primary)
+                    }
+
+                    Card(
+                        onClick = { onNavigateWithLogin(Routes.SCHEDULE, LoginType.JWXT) },
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 20.dp,
+                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+                        pressFeedbackType = PressFeedbackType.Sink
+                    ) {
+                        Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CalendarMonth, null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.primary)
+                                Spacer(Modifier.width(6.dp))
+                                Text(cardTitle, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                                if (todayCourses.isNotEmpty()) {
+                                    Text("${todayCourses.size} 节", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    Spacer(Modifier.width(4.dp))
+                                }
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                            }
+                            if (statusHint.isNotBlank()) {
+                                Spacer(Modifier.height(6.dp))
+                                Text(statusHint, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            }
+                            if (todayCourses.isNotEmpty() && !allDone) {
+                                Spacer(Modifier.height(10.dp))
+                                // 显示剩余未上的课程（当前在上的高亮）
+                                val remainingCourses = todayCourses.filter { course ->
+                                    val endTime = com.xjtu.toolbox.util.XjtuTime.getClassTime(course.endSection, isSummer)?.end
+                                    endTime == null || now <= endTime
+                                }
+                                remainingCourses.take(3).forEachIndexed { idx, course ->
+                                    if (idx > 0) Spacer(Modifier.height(6.dp))
+                                    val isCurrent = course == currentCourse
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // 时间标签
+                                        val timeRange = com.xjtu.toolbox.util.XjtuTime.getTimeRangeStr(course.startSection, course.endSection, isSummer)
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = if (isCurrent) accentColor.copy(alpha = 0.15f) else MiuixTheme.colorScheme.secondaryContainer,
+                                            modifier = Modifier.widthIn(min = 56.dp)
+                                        ) {
+                                            Text(
+                                                timeRange.split("-").first(),
+                                                Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                                style = MiuixTheme.textStyles.footnote1,
+                                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isCurrent) accentColor else MiuixTheme.colorScheme.onSecondaryContainer,
+                                                textAlign = TextAlign.Center
+                                            )
+                                        }
+                                        Spacer(Modifier.width(10.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                course.name,
+                                                style = MiuixTheme.textStyles.body2,
+                                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isCurrent) MiuixTheme.colorScheme.onSurface else MiuixTheme.colorScheme.onSurface,
+                                                maxLines = 1, overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (course.location.isNotBlank()) {
+                                                Text(course.location, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            }
+                                        }
+                                        if (isCurrent) {
+                                            Surface(shape = RoundedCornerShape(4.dp), color = accentColor) {
+                                                Text("进行中", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onPrimary, fontSize = 10.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                                val hiddenCount = remainingCourses.size - 3
+                                if (hiddenCount > 0) {
+                                    Spacer(Modifier.height(4.dp))
+                                    Text("+$hiddenCount 门课…", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+
+                // ═══ 校园卡智能卡片 ═══
+                if (cachedBalance >= 0f || loginState.campusCardLogin != null) {
+                    val scope = rememberCoroutineScope()
+                    val isLowBalance = cachedBalance in 0f..30f
+                    Card(
+                        onClick = { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) },
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 20.dp,
+                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant),
+                        pressFeedbackType = PressFeedbackType.Sink
+                    ) {
+                        Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                            // 头部：标题 + 刷新
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CreditCard, null, Modifier.size(16.dp), tint = if (isLowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary)
+                                Spacer(Modifier.width(6.dp))
+                                Text("校园卡", style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Bold, color = if (isLowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.primary, modifier = Modifier.weight(1f))
+                                if (isLowBalance) {
+                                    Surface(shape = RoundedCornerShape(4.dp), color = MiuixTheme.colorScheme.errorContainer) {
+                                        Text("余额不足", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.error, fontSize = 10.sp)
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                // 刷新按钮
+                                IconButton(
+                                    onClick = {
+                                        val login = loginState.campusCardLogin ?: return@IconButton
+                                        isRefreshingCard = true
+                                        scope.launch {
+                                            try {
+                                                val api = com.xjtu.toolbox.card.CampusCardApi(login)
+                                                val info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { api.getCardInfo() }
+                                                cachedBalance = info.balance.toFloat()
+                                                context.getSharedPreferences("campus_card", 0).edit()
+                                                    .putFloat("card_balance_cache", info.balance.toFloat())
+                                                    .putString("card_name_cache", info.name)
+                                                    .putLong("card_cache_time", System.currentTimeMillis())
+                                                    .apply()
+                                                // 最近消费也刷新（只取最近5笔，快速）
+                                                val (_, recentTx) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { api.getTransactions(page = 1, pageSize = 5) }
+                                                val recentJson = com.google.gson.Gson().toJson(recentTx)
+                                                context.getSharedPreferences("campus_card", 0).edit()
+                                                    .putString("card_recent_tx_cache", recentJson)
+                                                    .apply()
+                                            } catch (_: Exception) {}
+                                            isRefreshingCard = false
+                                        }
+                                    },
+                                    enabled = !isRefreshingCard && loginState.campusCardLogin != null,
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    if (isRefreshingCard) CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp)
+                                    else Icon(Icons.Default.Refresh, "刷新", Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                }
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(16.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                            }
+                            // 余额显示
+                            if (cachedBalance >= 0f) {
+                                Spacer(Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.Bottom) {
+                                    Text("¥", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, color = if (isLowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurface)
+                                    Spacer(Modifier.width(2.dp))
+                                    Text(
+                                        "%.2f".format(cachedBalance),
+                                        style = MiuixTheme.textStyles.title1,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isLowBalance) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurface
+                                    )
+                                    if (cachedName.isNotBlank()) {
+                                        Spacer(Modifier.weight(1f))
+                                        Text(cachedName, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    }
+                                }
+                            }
+                            // 最近消费
+                            if (cachedRecentTx.isNotEmpty()) {
+                                Spacer(Modifier.height(10.dp))
+                                HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.1f))
+                                Spacer(Modifier.height(8.dp))
+                                cachedRecentTx.take(3).forEach { tx ->
+                                    Row(
+                                        Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(tx.merchant.ifBlank { tx.type }, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurface, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        val amtStr = if (tx.amount < 0) "-¥${"%.2f".format(-tx.amount)}" else "+¥${"%.2f".format(tx.amount)}"
+                                        Text(amtStr, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium, color = if (tx.amount < 0) MiuixTheme.colorScheme.onSurface else androidx.compose.ui.graphics.Color(0xFF2E7D32))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
         Column(Modifier.padding(horizontal = 16.dp)) {
             Text(
                 "全部服务",
-                style = MaterialTheme.typography.titleMedium,
+                style = MiuixTheme.textStyles.headline1,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.padding(start = 4.dp, bottom = 12.dp)
             )
@@ -1428,25 +1830,36 @@ private fun HomeTab(
                 }
             }
 
+            val svcGreen = androidx.compose.ui.graphics.Color(0xFF2E7D32)
+            val svcOrange = androidx.compose.ui.graphics.Color(0xFFE65100)
+            val svcPurple = androidx.compose.ui.graphics.Color(0xFF7B1FA2)
+            val svcTeal = androidx.compose.ui.graphics.Color(0xFF00796B)
+            val svcIndigo = androidx.compose.ui.graphics.Color(0xFF283593)
+            val svcBrown = androidx.compose.ui.graphics.Color(0xFF4E342E)
+            val svcCyan = androidx.compose.ui.graphics.Color(0xFF00838F)
+            val svcPink = androidx.compose.ui.graphics.Color(0xFFC2185B)
             svcRow(
-                { m -> HomeServiceCard(Icons.Default.CreditCard, "校园卡", "余额 · 账单", MaterialTheme.colorScheme.primary, m) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) } },
-                { m -> HomeServiceCard(Icons.Default.CalendarMonth, "课表考试", "课表 · 考试", MaterialTheme.colorScheme.secondary, m) { onNavigateWithLogin(Routes.SCHEDULE, LoginType.JWXT) } }
+                { m -> HomeServiceCard(Icons.Default.CreditCard, "校园卡", "余额 · 账单", svcGreen, m) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) } },
+                { m -> HomeServiceCard(Icons.Default.CalendarMonth, "课表考试", "课表 · 考试", svcIndigo, m) { onNavigateWithLogin(Routes.SCHEDULE, LoginType.JWXT) } }
             )
             svcRow(
-                { m -> HomeServiceCard(Icons.Default.Assessment, "成绩查询", "成绩 · GPA", MaterialTheme.colorScheme.tertiary, m) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) } },
-                { m -> HomeServiceCard(Icons.Default.QrCode, "付款码", "校园支付", MaterialTheme.colorScheme.primary, m) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.JWXT) } }
+                { m -> HomeServiceCard(Icons.Default.Assessment, "成绩查询", "成绩 · GPA", svcPurple, m) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) } },
+                { m -> HomeServiceCard(Icons.Default.QrCode, "付款码", "校园支付", svcTeal, m) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.JWXT) } }
             )
             svcRow(
-                { m -> HomeServiceCard(Icons.Default.AccountTree, "培养进度", "选课 · 方案", MaterialTheme.colorScheme.secondary, m) { onNavigateWithLogin(Routes.CURRICULUM, LoginType.JWXT) } },
-                { m -> HomeServiceCard(Icons.Default.DateRange, "考勤查询", "进出记录", MaterialTheme.colorScheme.tertiary, m) { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) } }
+                { m -> HomeServiceCard(Icons.Default.AccountTree, "培养进度", "选课 · 方案", svcCyan, m) { onNavigateWithLogin(Routes.CURRICULUM, LoginType.JWXT) } },
+                { m -> HomeServiceCard(Icons.Default.DateRange, "考勤查询", "进出记录", svcBrown, m) { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) } }
             )
             svcRow(
-                { m -> HomeServiceCard(Icons.Default.RateReview, "本科评教", "自动评教", MaterialTheme.colorScheme.primary, m) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) } },
-                { m -> HomeServiceCard(Icons.Default.Chair, "图书馆", "座位预约", MaterialTheme.colorScheme.secondary, m) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) } }
+                { m -> HomeServiceCard(Icons.Default.RateReview, "本科评教", "自动评教", svcPink, m) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) } },
+                { m -> HomeServiceCard(Icons.Default.Chair, "图书馆", "座位预约", svcOrange, m) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) } }
             )
             svcRow(
-                { m -> HomeServiceCard(Icons.Default.LocationOn, "空闲教室", "教室查询", MaterialTheme.colorScheme.tertiary, m) { onNavigate(Routes.EMPTY_ROOM) } },
-                { m -> HomeServiceCard(Icons.Default.Notifications, "通知公告", "校园通知", MaterialTheme.colorScheme.error, m) { onNavigate(Routes.NOTIFICATION) } }
+                { m -> HomeServiceCard(Icons.Default.LocationOn, "空闲教室", "教室查询", svcPurple, m) { onNavigate(Routes.EMPTY_ROOM) } },
+                { m -> HomeServiceCard(Icons.Default.Notifications, "通知公告", "校园通知", MiuixTheme.colorScheme.error, m) { onNavigate(Routes.NOTIFICATION) } }
+            )
+            svcRow(
+                { m -> HomeServiceCard(Icons.Default.Description, "电子成绩单", "下载 · 签章", svcIndigo, m) { onNavigateWithLogin(Routes.TRANSCRIPT, LoginType.DZPZ) } },
             )
         }
 
@@ -1459,28 +1872,39 @@ private fun HomeTab(
 // ══════════════════════════════════════════
 
 @Composable
-private fun AcademicTab(loginState: AppLoginState, onNavigateWithLogin: (String, LoginType) -> Unit) {
+private fun AcademicTab(loginState: AppLoginState, onNavigateWithLogin: (String, LoginType) -> Unit, scrollBehavior: ScrollBehavior? = null) {
     Column(
         Modifier
             .fillMaxSize()
+            .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
+            .overScrollVertical()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(12.dp))
 
+        val cIndigo = androidx.compose.ui.graphics.Color(0xFF283593)
+        val cPurple = androidx.compose.ui.graphics.Color(0xFF7B1FA2)
+        val cBrown = androidx.compose.ui.graphics.Color(0xFF4E342E)
+        val cPink = androidx.compose.ui.graphics.Color(0xFFC2185B)
+        val cCyan = androidx.compose.ui.graphics.Color(0xFF00838F)
+        val cGreen = androidx.compose.ui.graphics.Color(0xFF2E7D32)
+        val cTeal = androidx.compose.ui.graphics.Color(0xFF00796B)
+        val cOrange = androidx.compose.ui.graphics.Color(0xFFE65100)
+
         SectionLabel("本科生")
-        ServiceCard(Icons.Default.CalendarMonth, "课表 / 考试", "课表安排 · 考试时间 · 教材查询", loginState.jwxtLogin != null) { onNavigateWithLogin(Routes.SCHEDULE, LoginType.JWXT) }
-        ServiceCard(Icons.Default.Assessment, "成绩查询", "查看成绩 / GPA / 含报表补充", loginState.jwappLogin != null) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) }
-        ServiceCard(Icons.Default.DateRange, "考勤查询", "查看进出校园记录", loginState.attendanceLogin != null) { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) }
-        ServiceCard(Icons.Default.RateReview, "本科评教", "一键自动评教", loginState.jwxtLogin != null) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) }
-        ServiceCard(Icons.Default.AccountTree, "培养进度", "培养方案 · 选课进度 · 逾期提醒", loginState.jwxtLogin != null) { onNavigateWithLogin(Routes.CURRICULUM, LoginType.JWXT) }
+        ServiceCard(Icons.Default.CalendarMonth, "课表 / 考试", "课表安排 · 考试时间 · 教材查询", loginState.jwxtLogin != null, iconColor = cIndigo) { onNavigateWithLogin(Routes.SCHEDULE, LoginType.JWXT) }
+        ServiceCard(Icons.Default.Assessment, "成绩查询", "查看成绩 / GPA / 含报表补充", loginState.jwappLogin != null, iconColor = cPurple) { onNavigateWithLogin(Routes.JWAPP_SCORE, LoginType.JWAPP) }
+        ServiceCard(Icons.Default.DateRange, "考勤查询", "查看进出校园记录", loginState.attendanceLogin != null, iconColor = cBrown) { onNavigateWithLogin(Routes.ATTENDANCE, LoginType.ATTENDANCE) }
+        ServiceCard(Icons.Default.RateReview, "本科评教", "一键自动评教", loginState.jwxtLogin != null, iconColor = cPink) { onNavigateWithLogin(Routes.JUDGE, LoginType.JWXT) }
+        ServiceCard(Icons.Default.AccountTree, "培养进度", "培养方案 · 选课进度 · 逾期提醒", loginState.jwxtLogin != null, iconColor = cCyan) { onNavigateWithLogin(Routes.CURRICULUM, LoginType.JWXT) }
 
         Spacer(Modifier.height(16.dp))
 
         SectionLabel("校园生活")
-        ServiceCard(Icons.Default.CreditCard, "校园卡", "余额查询 / 消费账单 / 分析", loginState.campusCardLogin != null) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) }
-        ServiceCard(Icons.Default.QrCode, "付款码", "校园支付 · 点击即用", loginState.getSharedClient() != null) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.JWXT) }
-        ServiceCard(Icons.Default.Chair, "图书馆座位", "座位查询与一键预约", loginState.libraryLogin != null) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) }
+        ServiceCard(Icons.Default.CreditCard, "校园卡", "余额查询 / 消费账单 / 分析", loginState.campusCardLogin != null, iconColor = cGreen) { onNavigateWithLogin(Routes.CAMPUS_CARD, LoginType.CAMPUS_CARD) }
+        ServiceCard(Icons.Default.QrCode, "付款码", "校园支付 · 点击即用", loginState.getSharedClient() != null, iconColor = cTeal) { onNavigateWithLogin(Routes.PAYMENT_CODE, LoginType.JWXT) }
+        ServiceCard(Icons.Default.Chair, "图书馆座位", "查询 · 预约座位", loginState.libraryLogin != null, iconColor = cOrange) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) }
 
         Spacer(Modifier.height(24.dp))
     }
@@ -1490,24 +1914,25 @@ private fun AcademicTab(loginState: AppLoginState, onNavigateWithLogin: (String,
 //  Tab 3 — 工具
 // ══════════════════════════════════════════
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ToolsTab(onNavigate: (String) -> Unit) {
+private fun ToolsTab(onNavigate: (String) -> Unit, scrollBehavior: ScrollBehavior? = null) {
     Column(
         Modifier
             .fillMaxSize()
+            .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
+            .overScrollVertical()
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 16.dp)
     ) {
         Spacer(Modifier.height(12.dp))
 
         SectionLabel("校园查询")
-        ServiceCard(Icons.Default.LocationOn, "空闲教室", "查询各校区各时段空闲教室 · 无需登录", false) { onNavigate(Routes.EMPTY_ROOM) }
+        ServiceCard(Icons.Default.LocationOn, "空闲教室", "查询各校区各时段空闲教室 · 无需登录", false, iconColor = androidx.compose.ui.graphics.Color(0xFF7B1FA2)) { onNavigate(Routes.EMPTY_ROOM) }
 
         Spacer(Modifier.height(16.dp))
 
         SectionLabel("信息获取")
-        ServiceCard(Icons.Default.Notifications, "通知公告", "教务处 / 研究生院 / 物理学院通知 · 无需登录", false) { onNavigate(Routes.NOTIFICATION) }
+        ServiceCard(Icons.Default.Notifications, "通知公告", "教务处 / 研究生院 / 物理学院通知 · 无需登录", false, iconColor = androidx.compose.ui.graphics.Color(0xFFE65100)) { onNavigate(Routes.NOTIFICATION) }
 
         Spacer(Modifier.height(16.dp))
 
@@ -1516,31 +1941,24 @@ private fun ToolsTab(onNavigate: (String) -> Unit) {
         var inputUrl by remember { mutableStateOf("") }
         var convertedUrl by remember { mutableStateOf("") }
         var isReversed by remember { mutableStateOf(false) } // false=原始→VPN, true=VPN→原始
-        Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+        Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
             Column(Modifier.padding(16.dp)) {
-                Text("WebVPN 网址互转", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text("WebVPN 网址互转", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(4.dp))
 
                 // 方向切换
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    SegmentedButton(
-                        selected = !isReversed,
-                        onClick = { isReversed = false; convertedUrl = "" },
-                        shape = SegmentedButtonDefaults.itemShape(0, 2)
-                    ) { Text("原始 → VPN", fontSize = 12.sp, maxLines = 1) }
-                    SegmentedButton(
-                        selected = isReversed,
-                        onClick = { isReversed = true; convertedUrl = "" },
-                        shape = SegmentedButtonDefaults.itemShape(1, 2)
-                    ) { Text("VPN → 原始", fontSize = 12.sp, maxLines = 1) }
-                }
+                TabRowWithContour(
+                    tabs = listOf("原始 → VPN", "VPN → 原始"),
+                    selectedTabIndex = if (isReversed) 1 else 0,
+                    onTabSelected = { tab -> isReversed = tab == 1; convertedUrl = "" },
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 Spacer(Modifier.height(12.dp))
-                OutlinedTextField(
+                TextField(
                     value = inputUrl,
                     onValueChange = { inputUrl = it; convertedUrl = "" },
-                    label = { Text(if (!isReversed) "校内网址" else "WebVPN 网址") },
-                    placeholder = { Text(if (!isReversed) "http://bkkq.xjtu.edu.cn/..." else "https://webvpn.xjtu.edu.cn/...") },
+                    label = if (!isReversed) "校内网址" else "WebVPN 网址",
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )
@@ -1565,12 +1983,12 @@ private fun ToolsTab(onNavigate: (String) -> Unit) {
                 if (convertedUrl.isNotBlank()) {
                     Spacer(Modifier.height(8.dp))
                     SelectionContainer {
-                        Text(convertedUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                        Text(convertedUrl, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.primary)
                     }
                     // 如果是有效 URL，提供内置浏览器跳转按钮
                     if (convertedUrl.startsWith("http")) {
                         Spacer(Modifier.height(8.dp))
-                        OutlinedButton(
+                        Button(
                             onClick = { onNavigate(Routes.browser(convertedUrl)) },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -1590,7 +2008,7 @@ private fun ToolsTab(onNavigate: (String) -> Unit) {
 // ══════════════════════════════════════════
 
 @Composable
-private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, LoginType) -> Unit, credentialStore: CredentialStore) {
+private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, LoginType) -> Unit, credentialStore: CredentialStore, scrollBehavior: ScrollBehavior? = null) {
     val scope = rememberCoroutineScope()
 
     // 登录表单状态
@@ -1690,7 +2108,6 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                 }
             } catch (e: Exception) {
                 // coroutineScope 内部异常（如网络检测失败），不应终止整个登录
-                android.util.Log.w("Login", "Phase 1 并行异常: ${e.message}")
                 if (jwxtLogin == null && jwxtError == null) {
                     jwxtError = "登录异常: ${e.message}"
                 }
@@ -1735,7 +2152,6 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
             loginProgress = 1f
             isLoggingIn = false
             loginState.persistCredentials(credentialStore)
-            android.util.Log.d("Login", "核心登录完成 ${System.currentTimeMillis() - startMs}ms")
 
             // ── 后台: 并行贯通所有子系统（不阻塞 UI）──
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -1750,95 +2166,101 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                         val api = com.xjtu.toolbox.ywtb.YwtbApi(loginState.ywtbLogin!!)
                         loginState.ywtbUserInfo = api.getUserInfo()
                     }
-                    android.util.Log.d("Login", "后台贯通完成: ${loginState.loginCount} 个系统")
                 } catch (_: Exception) { }
             }
         }
     }
 
     // ── MFA 两步验证对话框 ──
+    val showMfaDialog = remember { mutableStateOf(false) }
+    LaunchedEffect(mfaLogin) { showMfaDialog.value = mfaLogin != null }
     if (mfaLogin != null) {
-        AlertDialog(
+        SuperBottomSheet(
+            show = showMfaDialog,
+            title = "两步验证",
             onDismissRequest = {
+                showMfaDialog.value = false
                 mfaLogin = null
                 mfaCode = ""
                 mfaError = null
-            },
-            title = { Text("两步验证") },
-            text = {
-                Column {
-                    Text("需要短信验证码完成登录", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(8.dp))
-                    Text("手机号: $mfaPhone", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.height(12.dp))
+            }
+        ) {
+            Text("需要短信验证码完成登录", style = MiuixTheme.textStyles.body1)
+            Spacer(Modifier.height(8.dp))
+            Text("手机号: $mfaPhone", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.height(12.dp))
 
-                    // 发送验证码按钮
-                    if (!mfaCodeSent) {
-                        Button(
-                            onClick = {
-                                mfaSending = true
-                                mfaError = null
-                                scope.launch {
-                                    try {
-                                        val login = mfaLogin ?: run { mfaError = "MFA 会话丢失"; return@launch }
-                                        val ctx = login.mfaContext ?: run { mfaError = "MFA 上下文丢失"; return@launch }
-                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                            ctx.sendVerifyCode()
-                                        }
-                                        mfaCodeSent = true
-                                    } catch (e: Exception) {
-                                        mfaError = "发送失败: ${e.message}"
-                                    }
-                                    mfaSending = false
+            // 发送验证码按钮
+            if (!mfaCodeSent) {
+                Button(
+                    onClick = {
+                        mfaSending = true
+                        mfaError = null
+                        scope.launch {
+                            try {
+                                val login = mfaLogin ?: run { mfaError = "MFA 会话丢失"; return@launch }
+                                val ctx = login.mfaContext ?: run { mfaError = "MFA 上下文丢失"; return@launch }
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    ctx.sendVerifyCode()
                                 }
-                            },
-                            enabled = !mfaSending,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            if (mfaSending) {
-                                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                                Spacer(Modifier.width(8.dp))
+                                mfaCodeSent = true
+                            } catch (e: Exception) {
+                                mfaError = "发送失败: ${e.message}"
                             }
-                            Text(if (mfaSending) "发送中..." else "发送验证码")
+                            mfaSending = false
                         }
-                    } else {
-                        // 验证码输入
-                        OutlinedTextField(
-                            value = mfaCode,
-                            onValueChange = { mfaCode = it; mfaError = null },
-                            label = { Text("验证码") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            isError = mfaError != null,
-                            supportingText = mfaError?.let { { Text(it) } }
-                        )
+                    },
+                    enabled = !mfaSending,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (mfaSending) {
+                        CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
                     }
+                    Text(if (mfaSending) "发送中..." else "发送验证码")
                 }
-            },
-            confirmButton = {
+            } else {
+                // 验证码输入
+                TextField(
+                    value = mfaCode,
+                    onValueChange = { mfaCode = it; mfaError = null },
+                    label = "验证码",
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                )
+                if (mfaError != null) {
+                    Text(mfaError!!, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.footnote1, modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        showMfaDialog.value = false
+                        mfaLogin = null
+                        mfaCode = ""
+                        mfaError = null
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
+                ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
                 if (mfaCodeSent) {
                     Button(
                         onClick = { finishMfaAndLogin() },
-                        enabled = mfaCode.length >= 4 && !mfaVerifying
+                        enabled = mfaCode.length >= 4 && !mfaVerifying,
+                        modifier = Modifier.weight(1f)
                     ) {
                         if (mfaVerifying) {
-                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
                             Spacer(Modifier.width(4.dp))
                         }
                         Text(if (mfaVerifying) "验证中..." else "验证并登录")
                     }
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    mfaLogin = null
-                    mfaCode = ""
-                    mfaError = null
-                }) { Text("取消") }
             }
-        )
+        }
     }
 
     // ── NSA 数据（已在 Phase2 自动登录中加载 或 从缓存恢复，此处仅做 fallback） ──
@@ -1904,12 +2326,9 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                         }
                     }
 
-                    android.util.Log.d("ProfileTab", "NSA fallback loaded: details=${loginState.nsaProfile?.details?.size}")
                 } catch (e: kotlin.coroutines.cancellation.CancellationException) {
                     throw e
-                } catch (e: Exception) {
-                    android.util.Log.w("ProfileTab", "NSA fallback failed: ${e.message}")
-                }
+                } catch (_: Exception) { }
             }
         }
     }
@@ -1918,13 +2337,14 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
     Column(
         Modifier
             .fillMaxSize()
+            .then(if (scrollBehavior != null) Modifier.nestedScroll(scrollBehavior.nestedScrollConnection) else Modifier)
+            .overScrollVertical()
             .verticalScroll(rememberScrollState())
     ) {
         // ━━ Hero Header ━━
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 0.dp
+            color = MiuixTheme.colorScheme.surface
         ) {
             Box(
                 Modifier
@@ -1932,8 +2352,9 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                                MaterialTheme.colorScheme.surface
+                                MiuixTheme.colorScheme.surface,
+                                MiuixTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                MiuixTheme.colorScheme.surface
                             )
                         )
                     )
@@ -1944,8 +2365,7 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                     Surface(
                         modifier = Modifier.size(72.dp),
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary,
-                        tonalElevation = 4.dp
+                        color = MiuixTheme.colorScheme.primary
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             val photoBytes = loginState.nsaPhotoBytes
@@ -1963,13 +2383,13 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                                 } else {
                                     // 解码失败，显示首字母
                                     val initial = (loginState.nsaProfile?.name ?: loginState.ywtbUserInfo?.userName ?: loginState.activeUsername).take(1)
-                                    Text(initial, color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                                    Text(initial, color = MiuixTheme.colorScheme.onPrimary, style = MiuixTheme.textStyles.title2, fontWeight = FontWeight.Bold)
                                 }
                             } else if (loginState.isLoggedIn) {
                                 val initial = (loginState.nsaProfile?.name ?: loginState.ywtbUserInfo?.userName ?: loginState.activeUsername).take(1)
-                                Text(initial, color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                                Text(initial, color = MiuixTheme.colorScheme.onPrimary, style = MiuixTheme.textStyles.title2, fontWeight = FontWeight.Bold)
                             } else {
-                                Icon(Icons.Outlined.Person, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                                Icon(Icons.Outlined.Person, null, Modifier.size(36.dp), tint = MiuixTheme.colorScheme.onPrimary)
                             }
                         }
                     }
@@ -1978,15 +2398,15 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                         if (loginState.isLoggedIn) {
                             Text(
                                 loginState.nsaProfile?.name ?: loginState.ywtbUserInfo?.userName ?: loginState.activeUsername,
-                                style = MaterialTheme.typography.titleLarge,
+                                style = MiuixTheme.textStyles.title2,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(Modifier.height(2.dp))
                             // 学号
                             Text(
                                 loginState.activeUsername,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                             )
                             // 学院 · 专业（优先 NSA，回退 YWTB）
                             val subtitle = loginState.nsaProfile?.let { p ->
@@ -1999,15 +2419,15 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     it,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
                         } else {
-                            Text("XJTU 工具箱", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Text("登录以使用全部功能", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("XJTU 工具箱", style = MiuixTheme.textStyles.title2, fontWeight = FontWeight.Bold)
+                            Text("登录以使用全部功能", style = MiuixTheme.textStyles.body1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
                     }
                 }
@@ -2022,47 +2442,43 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                 // 登录表单
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                    cornerRadius = 20.dp,
+                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(Modifier.padding(24.dp)) {
                         Text(
                             "统一身份认证",
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MiuixTheme.textStyles.headline1,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "单点登录 · CAS SSO · 所有服务一键接入",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            "CAS 统一认证登录",
+                            style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                         )
 
                         Spacer(Modifier.height(20.dp))
 
-                        OutlinedTextField(
+                        TextField(
                             value = username,
                             onValueChange = { username = it; loginError = null },
-                            label = { Text("学号 / 手机号") },
+                            label = "学号 / 手机号",
                             singleLine = true,
                             enabled = !isLoggingIn,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text)
                         )
                         Spacer(Modifier.height(12.dp))
                         var passwordVisible by remember { mutableStateOf(false) }
-                        OutlinedTextField(
+                        TextField(
                             value = password,
                             onValueChange = { password = it; loginError = null },
-                            label = { Text("密码") },
+                            label = "密码",
                             singleLine = true,
                             enabled = !isLoggingIn,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
                             visualTransformation = if (passwordVisible) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                            isError = loginError != null,
-                            supportingText = loginError?.let { { Text(it) } },
                             trailingIcon = {
                                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
                                     Icon(
@@ -2072,6 +2488,10 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                                 }
                             }
                         )
+                        if (loginError != null) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(loginError!!, color = MiuixTheme.colorScheme.error, style = MiuixTheme.textStyles.footnote1, modifier = Modifier.padding(start = 4.dp))
+                        }
 
                         Spacer(Modifier.height(20.dp))
 
@@ -2085,19 +2505,20 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                                 loginAllSystems(username, password)
                             },
                             modifier = Modifier.fillMaxWidth().height(52.dp),
-                            enabled = !isLoggingIn,
-                            shape = RoundedCornerShape(14.dp)
+                            enabled = !isLoggingIn
                         ) {
                             if (isLoggingIn) {
                                 CircularProgressIndicator(
-                                    Modifier.size(20.dp),
-                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    size = 20.dp,
+                                    colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                                        foregroundColor = MiuixTheme.colorScheme.onPrimary
+                                    ),
                                     strokeWidth = 2.dp
                                 )
                                 Spacer(Modifier.width(12.dp))
                                 Text(loginStage)
                             } else {
-                                Text("登录", style = MaterialTheme.typography.titleSmall)
+                                Text("登录", style = MiuixTheme.textStyles.subtitle)
                             }
                         }
 
@@ -2106,21 +2527,23 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                             Spacer(Modifier.height(16.dp))
                             val animatedProgress by animateFloatAsState(
                                 targetValue = loginProgress,
-                                animationSpec = tween(durationMillis = 300),
+                                animationSpec = spring(dampingRatio = 0.85f, stiffness = 500f),
                                 label = "loginProgress"
                             )
                             LinearProgressIndicator(
-                                progress = { animatedProgress },
-                                modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
-                                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                                progress = animatedProgress,
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                                    backgroundColor = MiuixTheme.colorScheme.surfaceVariant
+                                )
                             )
                         }
 
                         Spacer(Modifier.height(12.dp))
                         Text(
                             "密码仅用于本地加密后发送至学校 CAS 服务器",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            style = MiuixTheme.textStyles.footnote1,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.6f),
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -2147,79 +2570,6 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
 
             Column(Modifier.padding(horizontal = 20.dp)) {
 
-                // ━━ 个人详情卡片（默认折叠，点击展开） ━━
-                val nsaDetails = loginState.nsaProfile?.details
-                val isNsaLoading = loginState.isLoggedIn && loginState.nsaProfile == null
-                val hasNsaDetails = !nsaDetails.isNullOrEmpty()
-                if (hasNsaDetails || isNsaLoading) {
-                    Spacer(Modifier.height(12.dp))
-                    var detailsExpanded by remember { mutableStateOf(false) }
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clickable { if (hasNsaDetails) detailsExpanded = !detailsExpanded },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-                    ) {
-                        Column(Modifier.padding(20.dp)) {
-                            Row(
-                                Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Outlined.Badge, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("个人信息", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                }
-                                if (isNsaLoading) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                                        Spacer(Modifier.width(6.dp))
-                                        Text("加载中…", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                                    }
-                                } else if (hasNsaDetails) {
-                                    Icon(
-                                        if (detailsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                        contentDescription = if (detailsExpanded) "收起" else "展开",
-                                        Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            AnimatedVisibility(visible = detailsExpanded && hasNsaDetails) {
-                                Column {
-                                    Spacer(Modifier.height(12.dp))
-                                    nsaDetails!!.forEachIndexed { idx, (label, value) ->
-                                        if (idx > 0) {
-                                            HorizontalDivider(
-                                                Modifier.padding(vertical = 6.dp),
-                                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
-                                            )
-                                        }
-                                        Row(
-                                            Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                label,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.widthIn(min = 56.dp)
-                                            )
-                                            Text(
-                                                value,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                textAlign = TextAlign.End,
-                                                modifier = Modifier.weight(1f).padding(start = 12.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // 学期 / 教学周 信息（使用 JWXT，Phase1 即可用，比 YWTB 快 ~3s）
                 if (loginState.jwxtLogin != null) {
                     var currentWeekText by remember { mutableStateOf<String?>(null) }
@@ -2227,12 +2577,10 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                     var schoolYear by remember { mutableStateOf<String?>(null) }
                     var countdownText by remember { mutableStateOf<String?>(null) }
                     LaunchedEffect(loginState.jwxtLogin) {
-                        android.util.Log.d("ProfileWeek", "LaunchedEffect fired, jwxtLogin=${loginState.jwxtLogin != null}")
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                             try {
                                 val api = com.xjtu.toolbox.schedule.ScheduleApi(loginState.jwxtLogin!!)
                                 val termCode = api.getCurrentTerm()    // e.g. "2025-2026-2"
-                                android.util.Log.d("ProfileWeek", "termCode=$termCode")
                                 val parts = termCode.split("-")
                                 if (parts.size >= 2) schoolYear = "${parts[0]}-${parts[1]} 学年"
                                 termText = when (parts.getOrNull(2)) {
@@ -2245,7 +2593,6 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                                     val today = java.time.LocalDate.now()
                                     val daysBetween = java.time.temporal.ChronoUnit.DAYS.between(startDate, today)
                                     val rawWeek = ((daysBetween / 7) + 1).toInt()
-                                    android.util.Log.d("ProfileWeek", "startDate=$startDate, today=$today, rawWeek=$rawWeek")
                                     val totalWeeks = 20
                                     when {
                                         rawWeek in 1..totalWeeks -> currentWeekText = "第${rawWeek}周"
@@ -2261,42 +2608,113 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
                                             countdownText = if (daysUntil > 0) "距开学还有 ${daysUntil} 天" else "即将开学"
                                         }
                                     }
-                                } catch (e: Exception) {
-                                    android.util.Log.w("ProfileWeek", "getStartOfTerm failed: ${e.message}")
-                                }
+                                } catch (_: Exception) { }
                             } catch (e: Exception) {
-                                android.util.Log.e("ProfileWeek", "JWXT API failed: ${e.javaClass.simpleName}: ${e.message}")
                                 val m = java.time.LocalDate.now().monthValue
                                 termText = if (m in 2..7) "第二学期" else "第一学期"
                             }
                         }
-                        android.util.Log.d("ProfileWeek", "done: currentWeekText=$currentWeekText, termText=$termText, schoolYear=$schoolYear, countdown=$countdownText")
                     }
                     if (currentWeekText != null || termText != null || schoolYear != null) {
                         Spacer(Modifier.height(12.dp))
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f))
+                            cornerRadius = 20.dp,
+                            colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                         ) {
                             Row(
                                 Modifier.fillMaxWidth().padding(20.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(Icons.Default.CalendarMonth, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                                Icon(Icons.Default.CalendarMonth, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.primaryVariant)
                                 Spacer(Modifier.width(12.dp))
                                 Column(Modifier.weight(1f)) {
                                     schoolYear?.let {
-                                        Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                        Text(it, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
                                     }
-                                    termText?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    termText?.let { Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
                                     countdownText?.let {
-                                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Medium)
+                                        Text(it, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.primaryVariant, fontWeight = FontWeight.Medium)
                                     }
                                 }
                                 currentWeekText?.let {
-                                    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.12f)) {
-                                        Text(it, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
+                                    Surface(shape = RoundedCornerShape(6.dp), color = MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.12f)) {
+                                        Text(it, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primaryVariant, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // ━━ 个人详情卡片（默认折叠，点击展开） ━━
+                val nsaDetails = loginState.nsaProfile?.details
+                val isNsaLoading = loginState.isLoggedIn && loginState.nsaProfile == null
+                val hasNsaDetails = !nsaDetails.isNullOrEmpty()
+                if (hasNsaDetails || isNsaLoading) {
+                    Spacer(Modifier.height(12.dp))
+                    var detailsExpanded by remember { mutableStateOf(false) }
+                    Card(
+                        onClick = { if (hasNsaDetails) detailsExpanded = !detailsExpanded },
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 20.dp,
+                        pressFeedbackType = PressFeedbackType.Sink,
+                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+                    ) {
+                        Column(Modifier.padding(20.dp)) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Outlined.Badge, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("个人信息", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
+                                }
+                                if (isNsaLoading) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("加载中…", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.outline)
+                                    }
+                                } else if (hasNsaDetails) {
+                                    Icon(
+                                        if (detailsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = if (detailsExpanded) "收起" else "展开",
+                                        Modifier.size(20.dp),
+                                        tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                    )
+                                }
+                            }
+                            AnimatedVisibility(visible = detailsExpanded && hasNsaDetails) {
+                                Column {
+                                    Spacer(Modifier.height(12.dp))
+                                    nsaDetails!!.forEachIndexed { idx, (label, value) ->
+                                        if (idx > 0) {
+                                            HorizontalDivider(
+                                                Modifier.padding(vertical = 6.dp),
+                                                color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                            )
+                                        }
+                                        Row(
+                                            Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                label,
+                                                style = MiuixTheme.textStyles.body2,
+                                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                                modifier = Modifier.widthIn(min = 56.dp)
+                                            )
+                                            Text(
+                                                value,
+                                                style = MiuixTheme.textStyles.body1,
+                                                textAlign = TextAlign.End,
+                                                modifier = Modifier.weight(1f).padding(start = 12.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -2306,262 +2724,329 @@ private fun ProfileTab(loginState: AppLoginState, onNavigateWithLogin: (String, 
 
                 Spacer(Modifier.height(16.dp))
 
-                // 网络状态
+                // ━━ 设置区块（网络模式 + 退出登录） ━━
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+                    cornerRadius = 20.dp,
+                    colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Column {
+                        // 网络模式行
                         val (networkIcon, networkText, networkColor) = when (loginState.isOnCampus) {
-                            true -> Triple(Icons.Default.Wifi, "校内直连", MaterialTheme.colorScheme.primary)
-                            false -> Triple(Icons.Default.VpnKey, "WebVPN 代理", MaterialTheme.colorScheme.tertiary)
-                            null -> Triple(Icons.Default.WifiFind, "检测中...", MaterialTheme.colorScheme.onSurfaceVariant)
+                            true -> Triple(Icons.Default.Wifi, "校内直连", MiuixTheme.colorScheme.primary)
+                            false -> Triple(Icons.Default.VpnKey, "WebVPN 代理", MiuixTheme.colorScheme.primaryVariant)
+                            null -> Triple(Icons.Default.WifiFind, "检测中...", MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
-                        Icon(networkIcon, null, Modifier.size(20.dp), tint = networkColor)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("网络模式", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                            Text("其他服务将在使用时自动连接", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(shape = CircleShape, color = networkColor.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(networkIcon, null, Modifier.size(18.dp), tint = networkColor)
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("网络模式", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                                Text("用到时会自动登录", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            }
+                            Surface(shape = RoundedCornerShape(6.dp), color = networkColor.copy(alpha = 0.12f)) {
+                                Text(networkText, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MiuixTheme.textStyles.footnote1, color = networkColor)
+                            }
                         }
-                        Surface(shape = RoundedCornerShape(6.dp), color = networkColor.copy(alpha = 0.12f)) {
-                            Text(networkText, Modifier.padding(horizontal = 8.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = networkColor)
+
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                        // 退出登录行
+                        val showLogoutDialog = remember { mutableStateOf(false) }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = SinkFeedback()
+                                ) { showLogoutDialog.value = true }
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(shape = CircleShape, color = MiuixTheme.colorScheme.onError.copy(alpha = 0.5f), modifier = Modifier.size(36.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.AutoMirrored.Filled.Logout, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.error)
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Text("退出登录", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.error, modifier = Modifier.weight(1f))
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                        }
+
+                        if (showLogoutDialog.value) {
+                            SuperDialog(
+                                show = showLogoutDialog,
+                                title = "确认退出",
+                                summary = "退出登录后需要重新输入凭据。确定要退出吗？",
+                                onDismissRequest = { showLogoutDialog.value = false }
+                            ) {
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    TextButton(
+                                        text = "取消",
+                                        onClick = { showLogoutDialog.value = false },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Button(
+                                        onClick = {
+                                            showLogoutDialog.value = false
+                                            loginState.logout(credentialStore)
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) { Text("退出登录") }
+                                }
+                            }
                         }
                     }
-                }
-
-                Spacer(Modifier.height(24.dp))
-
-                // 退出按钮
-                var showLogoutDialog by remember { mutableStateOf(false) }
-                OutlinedButton(
-                    onClick = { showLogoutDialog = true },
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
-                    )
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Logout, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("退出登录")
-                }
-                if (showLogoutDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showLogoutDialog = false },
-                        title = { Text("确认退出") },
-                        text = { Text("退出登录后需要重新输入凭据。确定要退出吗？") },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                showLogoutDialog = false
-                                loginState.logout(credentialStore)
-                            }) { Text("退出", color = MaterialTheme.colorScheme.error) }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showLogoutDialog = false }) { Text("取消") }
-                        }
-                    )
                 }
             }
         }
 
         Spacer(Modifier.height(24.dp))
 
-        // ── 关于 (Footer 风格，简洁不割裂) ──
+        // ── 关于区域（Card风格，整洁统一） ──
         val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
         var plansExpanded by remember { mutableStateOf(false) }
 
         Column(
-            Modifier.fillMaxWidth(),
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // 应用名 + 版本 一行搞定
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Terrain, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(6.dp))
-                Text("岱宗盒子", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.width(6.dp))
-                Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // 作者 & GitHub & 致谢 紧凑链接行
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "by Yeliqin666",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable { uriHandler.openUri("https://www.runqinliu666.cn/") }
-                )
-                Text(" · ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android") }
-                ) {
-                    Icon(Icons.Default.Code, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary)
-                    Spacer(Modifier.width(3.dp))
-                    Text("GitHub", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
-                Text(" · ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { uriHandler.openUri("https://github.com/yan-xiaoo/XJTUToolBox") }
-                ) {
-                    Icon(Icons.Default.Favorite, null, Modifier.size(12.dp), tint = MaterialTheme.colorScheme.error)
-                    Spacer(Modifier.width(3.dp))
-                    Text("致谢 XJTUToolBox", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            // 检查更新按钮
-            var updateCheckState by remember { mutableStateOf<String?>(null) } // null=idle, "checking"=检查中, "latest"=已是最新, "v?.?.?"=新版本号, "error:xxx"=错误
-            var latestDownloadUrl by remember { mutableStateOf<String?>(null) }
-            val updateScope = rememberCoroutineScope()
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedButton(
-                    onClick = {
-                        updateCheckState = "checking"
-                        latestDownloadUrl = null
-                        updateScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                            try {
-                                val client = okhttp3.OkHttpClient.Builder()
-                                    .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                                    .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
-                                    .build()
-                                val req = okhttp3.Request.Builder()
-                                    .url("https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases/latest")
-                                    .header("Accept", "application/vnd.github+json")
-                                    .build()
-                                val resp = client.newCall(req).execute()
-                                if (!resp.isSuccessful) {
-                                    updateCheckState = "error:HTTP ${resp.code}"
-                                    return@launch
-                                }
-                                val body = resp.body?.string() ?: ""
-                                val json = com.google.gson.JsonParser.parseString(body).asJsonObject
-                                val tagName = json.get("tag_name")?.asString ?: ""
-                                val latestVersion = tagName.removePrefix("v")
-                                val currentVersion = BuildConfig.VERSION_NAME
-                                if (latestVersion == currentVersion) {
-                                    updateCheckState = "latest"
-                                } else {
-                                    updateCheckState = latestVersion
-                                    // 尝试获取 APK 下载链接
-                                    val assets = json.getAsJsonArray("assets")
-                                    if (assets != null && assets.size() > 0) {
-                                        latestDownloadUrl = assets[0].asJsonObject.get("browser_download_url")?.asString
-                                    }
-                                    if (latestDownloadUrl == null) {
-                                        latestDownloadUrl = json.get("html_url")?.asString
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                updateCheckState = "error:${e.message?.take(50)}"
-                            }
-                        }
-                    },
-                    enabled = updateCheckState != "checking",
-                    shape = RoundedCornerShape(20.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-                ) {
-                    when (updateCheckState) {
-                        "checking" -> {
-                            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(6.dp))
-                            Text("检查中…", style = MaterialTheme.typography.labelMedium)
-                        }
-                        "latest" -> {
-                            Icon(Icons.Default.CheckCircle, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(6.dp))
-                            Text("已是最新版本", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        }
-                        null -> {
-                            Icon(Icons.Default.SystemUpdate, null, Modifier.size(14.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("检查更新", style = MaterialTheme.typography.labelMedium)
-                        }
-                        else -> {
-                            if (updateCheckState!!.startsWith("error:")) {
-                                Icon(Icons.Default.ErrorOutline, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
-                                Spacer(Modifier.width(6.dp))
-                                Text("检查失败，点击重试", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.error)
-                            } else {
-                                Icon(Icons.Default.NewReleases, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.tertiary)
-                                Spacer(Modifier.width(6.dp))
-                                Text("发现新版本 v$updateCheckState", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.tertiary, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
-            }
-            // 有新版本时显示下载按钮
-            if (updateCheckState != null && !updateCheckState!!.startsWith("error:") && updateCheckState != "latest" && updateCheckState != "checking" && latestDownloadUrl != null) {
-                Spacer(Modifier.height(6.dp))
-                FilledTonalButton(
-                    onClick = { uriHandler.openUri(latestDownloadUrl!!) },
-                    shape = RoundedCornerShape(20.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-                ) {
-                    Icon(Icons.Default.Download, null, Modifier.size(14.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("前往下载", style = MaterialTheme.typography.labelMedium)
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            // 开发计划 - 可展开/收起
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                modifier = Modifier.clickable { plansExpanded = !plansExpanded }
+            // 关于卡片
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                cornerRadius = 20.dp,
+                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
             ) {
                 Column {
+                    // 应用信息行
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.RocketLaunch, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.width(6.dp))
-                        Text("开发计划", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                        Icon(
-                            if (plansExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            null,
-                            Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Surface(shape = CircleShape, color = androidx.compose.ui.graphics.Color(0xFF2E7D32).copy(alpha = 0.15f), modifier = Modifier.size(36.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Terrain, null, Modifier.size(18.dp), tint = androidx.compose.ui.graphics.Color(0xFF2E7D32))
+                            }
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("岱宗盒子", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                            Text("by Yeliqin666", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                modifier = Modifier.clickable { uriHandler.openUri("https://www.runqinliu666.cn/") })
+                        }
+                        Surface(shape = RoundedCornerShape(6.dp), color = MiuixTheme.colorScheme.secondaryContainer) {
+                            Text("v${BuildConfig.VERSION_NAME}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSecondaryContainer)
+                        }
                     }
-                    androidx.compose.animation.AnimatedVisibility(visible = plansExpanded) {
-                        Column(Modifier.padding(start = 14.dp, end = 14.dp, bottom = 12.dp)) {
-                            val plans = listOf(
-                                "图书馆定时抢座",
-                                "空闲区域分析 & 座位推荐",
-                                "智能抢课",
-                                "通知聚合订阅 & Push",
-                                "电子成绩单获取与签印分析",
-                                "思源学堂解析版"
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // GitHub 行
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = SinkFeedback()
+                            ) { uriHandler.openUri("https://github.com/yeliqin666/xjtu-toolbox-android") }
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(shape = CircleShape, color = androidx.compose.ui.graphics.Color(0xFF37474F).copy(alpha = 0.15f), modifier = Modifier.size(36.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Code, null, Modifier.size(18.dp), tint = androidx.compose.ui.graphics.Color(0xFF37474F))
+                            }
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("源代码", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                            Text("GitHub / yeliqin666", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // 致谢行
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = SinkFeedback()
+                            ) { uriHandler.openUri("https://github.com/yan-xiaoo/XJTUToolBox") }
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(shape = CircleShape, color = MiuixTheme.colorScheme.error.copy(alpha = 0.12f), modifier = Modifier.size(36.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Favorite, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.error)
+                            }
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("致谢", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                            Text("XJTUToolBox by yan-xiaoo", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        }
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // 检查更新行
+                    var updateCheckState by remember { mutableStateOf<String?>(null) }
+                    var latestDownloadUrl by remember { mutableStateOf<String?>(null) }
+                    val updateScope = rememberCoroutineScope()
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = SinkFeedback(),
+                                enabled = updateCheckState != "checking"
+                            ) {
+                                updateCheckState = "checking"
+                                latestDownloadUrl = null
+                                updateScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                    try {
+                                        val client = okhttp3.OkHttpClient.Builder()
+                                            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                                            .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                                            .build()
+                                        val req = okhttp3.Request.Builder()
+                                            .url("https://api.github.com/repos/yeliqin666/xjtu-toolbox-android/releases/latest")
+                                            .header("Accept", "application/vnd.github+json")
+                                            .build()
+                                        val resp = client.newCall(req).execute()
+                                        if (!resp.isSuccessful) { updateCheckState = "error:HTTP ${resp.code}"; return@launch }
+                                        val body = resp.body?.string() ?: ""
+                                        val json = com.google.gson.JsonParser.parseString(body).asJsonObject
+                                        val tagName = json.get("tag_name")?.asString ?: ""
+                                        val latestVersion = tagName.removePrefix("v")
+                                        if (latestVersion == BuildConfig.VERSION_NAME) {
+                                            updateCheckState = "latest"
+                                        } else {
+                                            updateCheckState = latestVersion
+                                            val assets = json.getAsJsonArray("assets")
+                                            latestDownloadUrl = if (assets != null && assets.size() > 0)
+                                                assets[0].asJsonObject.get("browser_download_url")?.asString
+                                            else json.get("html_url")?.asString
+                                        }
+                                    } catch (e: Exception) { updateCheckState = "error:${e.message?.take(50)}" }
+                                }
+                            }
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val (updIcon, updColor) = when {
+                            updateCheckState == "checking" -> Icons.Default.Refresh to MiuixTheme.colorScheme.onSurfaceVariantSummary
+                            updateCheckState == "latest" -> Icons.Default.CheckCircle to MiuixTheme.colorScheme.primary
+                            updateCheckState?.startsWith("error:") == true -> Icons.Default.ErrorOutline to MiuixTheme.colorScheme.error
+                            updateCheckState != null -> Icons.Default.NewReleases to MiuixTheme.colorScheme.primaryVariant
+                            else -> Icons.Default.SystemUpdate to MiuixTheme.colorScheme.onSurfaceVariantSummary
+                        }
+                        Surface(shape = CircleShape, color = updColor.copy(alpha = 0.1f), modifier = Modifier.size(36.dp)) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (updateCheckState == "checking")
+                                    CircularProgressIndicator(size = 18.dp, strokeWidth = 2.dp, colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = updColor))
+                                else Icon(updIcon, null, Modifier.size(18.dp), tint = updColor)
+                            }
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("检查更新", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+                            Text(
+                                when {
+                                    updateCheckState == "checking" -> "检查中…"
+                                    updateCheckState == "latest" -> "当前已是最新版本"
+                                    updateCheckState?.startsWith("error:") == true -> "检查失败，点击重试"
+                                    updateCheckState != null -> "发现新版本 v$updateCheckState"
+                                    else -> "当前版本 v${BuildConfig.VERSION_NAME}"
+                                },
+                                style = MiuixTheme.textStyles.body2,
+                                color = when {
+                                    updateCheckState == "latest" -> MiuixTheme.colorScheme.primary
+                                    updateCheckState?.startsWith("error:") == true -> MiuixTheme.colorScheme.error
+                                    updateCheckState != null && !updateCheckState!!.startsWith("error:") && updateCheckState != "latest" && updateCheckState != "checking" -> MiuixTheme.colorScheme.primaryVariant
+                                    else -> MiuixTheme.colorScheme.onSurfaceVariantSummary
+                                }
                             )
-                            plans.forEachIndexed { idx, plan ->
-                                Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("${idx + 1}.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, fontWeight = FontWeight.Bold)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(plan, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        // 有新版本时显示下载按钮
+                        if (latestDownloadUrl != null && updateCheckState != null && !updateCheckState!!.startsWith("error:") && updateCheckState != "latest" && updateCheckState != "checking") {
+                            Button(
+                                onClick = { uriHandler.openUri(latestDownloadUrl!!) },
+                                modifier = Modifier.height(32.dp),
+                                colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.primary)
+                            ) {
+                                Icon(Icons.Default.Download, null, Modifier.size(14.dp), tint = MiuixTheme.colorScheme.onPrimary)
+                                Spacer(Modifier.width(4.dp))
+                                Text("下载更新", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onPrimary)
+                            }
+                        } else if (updateCheckState != "checking") {
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f))
+                        }
+                    }
+
+                    HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
+
+                    // 开发计划行（可展开）
+                    Column {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = SinkFeedback()
+                                ) { plansExpanded = !plansExpanded }
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(shape = CircleShape, color = MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.12f), modifier = Modifier.size(36.dp)) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.RocketLaunch, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.primaryVariant)
+                                }
+                            }
+                            Spacer(Modifier.width(14.dp))
+                            Text("开发计划", style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                            Icon(
+                                if (plansExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceVariantSummary.copy(alpha = 0.5f)
+                            )
+                        }
+                        androidx.compose.animation.AnimatedVisibility(visible = plansExpanded) {
+                            Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp)) {
+                                val plans = listOf(
+                                    "图书馆定时抢座",
+                                    "空闲区域分析 & 座位推荐",
+                                    "智能抢课",
+                                    "通知聚合订阅 & Push",
+                                    "电子成绩单获取与签印分析",
+                                    "思源学堂解析版"
+                                )
+                                plans.forEachIndexed { idx, plan ->
+                                    Row(Modifier.padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(shape = CircleShape, color = MiuixTheme.colorScheme.primaryVariant.copy(alpha = 0.10f), modifier = Modifier.size(20.dp)) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text("${idx + 1}", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primaryVariant, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(plan, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                                    }
                                 }
                             }
                         }
@@ -2588,26 +3073,26 @@ private fun StatusListItem(title: String, subtitle: String, isActive: Boolean) {
                 .size(8.dp)
                 .clip(CircleShape)
                 .background(
-                    if (isActive) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outlineVariant
+                    if (isActive) MiuixTheme.colorScheme.primary
+                    else MiuixTheme.colorScheme.outline
                 )
         )
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Medium)
+            Text(subtitle, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
         Surface(
             shape = RoundedCornerShape(6.dp),
-            color = if (isActive) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceContainerHighest
+            color = if (isActive) MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    else MiuixTheme.colorScheme.surfaceVariant
         ) {
             Text(
                 if (isActive) "已连接" else "离线",
                 Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                style = MiuixTheme.textStyles.footnote1,
+                color = if (isActive) MiuixTheme.colorScheme.primary
+                        else MiuixTheme.colorScheme.onSurfaceVariantSummary
             )
         }
     }
@@ -2617,26 +3102,33 @@ private fun StatusListItem(title: String, subtitle: String, isActive: Boolean) {
 //  通用组件
 // ══════════════════════════════════════════
 
+/** HomeTab 今日课表卡片用的轻量数据类 */
+private data class CourseCardInfo(val name: String, val location: String, val startSection: Int, val endSection: Int)
+
 @Composable
 private fun HomeQuickAction(icon: ImageVector, label: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clip(RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = SinkFeedback(),
+                onClick = onClick
+            )
             .padding(8.dp)
     ) {
         Surface(
             modifier = Modifier.size(56.dp),
             shape = RoundedCornerShape(16.dp),
-            color = color.copy(alpha = 0.12f)
+            color = color.copy(alpha = 0.18f)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(icon, null, tint = color, modifier = Modifier.size(28.dp))
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text(label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+        Text(label, style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium)
     }
 }
 
@@ -2648,26 +3140,18 @@ private fun HomeServiceCard(
     Card(
         onClick = onClick,
         modifier = modifier.height(72.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+        cornerRadius = 16.dp,
+        pressFeedbackType = PressFeedbackType.Sink,
+        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
     ) {
-        Row(
-            Modifier.fillMaxSize().padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(iconColor.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(iconColor.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
                 Icon(icon, null, tint = iconColor, modifier = Modifier.size(22.dp))
             }
             Spacer(Modifier.width(12.dp))
             Column {
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(subtitle, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
@@ -2675,52 +3159,55 @@ private fun HomeServiceCard(
 
 @Composable
 private fun SectionLabel(text: String) {
-    Text(text, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
+    Text(text, style = MiuixTheme.textStyles.subtitle, color = MiuixTheme.colorScheme.primary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp))
 }
 
 @Composable
-private fun ServiceCard(icon: ImageVector, title: String, description: String, loggedIn: Boolean, onClick: () -> Unit) {
+private fun ServiceCard(icon: ImageVector, title: String, description: String, loggedIn: Boolean, iconColor: androidx.compose.ui.graphics.Color = MiuixTheme.colorScheme.primary, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        shape = RoundedCornerShape(14.dp)
+        cornerRadius = 24.dp,
+        pressFeedbackType = PressFeedbackType.Sink
     ) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.fillMaxWidth().padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Box(
                 Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                    .background(iconColor.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp))
+                Icon(icon, null, tint = iconColor, modifier = Modifier.size(24.dp))
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(title, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
+                Text(description, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (loggedIn) {
-                Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
-                    Text("已登录", Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Surface(shape = RoundedCornerShape(8.dp), color = MiuixTheme.colorScheme.primary.copy(alpha = 0.12f)) {
+                    Text("已登录", Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.primary)
                 }
             } else {
-                Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Default.ChevronRight, null, tint = MiuixTheme.colorScheme.onSurfaceVariantSummary)
             }
         }
     }
 }
-
-// Old ProfileInfoRow and LoginStatusRow removed — replaced by ProfileInfoItem and StatusListItem
 
 // ══════════════════════════════════════════
 //  用户协议弹窗
 // ══════════════════════════════════════════
 
 @Composable
-private fun EulaDialog(onAccept: () -> Unit) {
+private fun EulaScreen(onAccept: () -> Unit) {
     val scrollState = rememberScrollState()
     var canAccept by remember { mutableStateOf(false) }
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
 
     // 滚动到底部才可同意
     LaunchedEffect(scrollState.value, scrollState.maxValue) {
@@ -2729,64 +3216,78 @@ private fun EulaDialog(onAccept: () -> Unit) {
         }
     }
 
-    AlertDialog(
-        onDismissRequest = { /* 不可关闭 */ },
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Gavel, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.width(8.dp))
-                Text("用户协议与免责声明", fontWeight = FontWeight.Bold)
-            }
-        },
-        text = {
-            Column {
-                Text(
-                    "请仔细阅读以下条款。继续使用本应用即表示您同意以下全部内容。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.height(8.dp))
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    modifier = Modifier.fillMaxWidth().height(320.dp)
-                ) {
-                    Column(
-                        Modifier.padding(14.dp).verticalScroll(scrollState)
-                    ) {
-                        val sections = listOf(
-                            "一、应用性质" to "本应用（「岱宗盒子」）是西安交通大学学生自主开发的非官方校园工具，通过模拟浏览器行为访问学校现有的 Web 服务接口，为学生提供统一便捷的校园信息查询体验。本应用不隶属于、不代表西安交通大学或其任何部门。",
-                            "二、数据来源与使用" to "本应用通过 HTTPS 协议访问学校公开的各业务系统接口获取数据，所有网络请求均在您的设备上发起。您的账号凭据（用户名和密码）仅加密存储在本地设备中，不会上传至任何第三方服务器。本应用不收集、不存储、不传输任何用户的个人信息至开发者或第三方。",
-                            "三、免责声明" to "1. 本应用按「按原样」（AS IS）提供，开发者不对其准确性、完整性、可用性或适用性作任何明示或暗示的保证。\n2. 因使用本应用导致的任何直接或间接损失（包括但不限于数据丢失、账号异常、学业影响等），开发者不承担任何责任。\n3. 若学校系统接口变更导致功能异常，开发者将尽力修复但不保证时效。\n4. 本应用可能因学校政策调整而需要停止服务，届时将提前告知用户。",
-                            "四、合规声明" to "1. 本应用仅供西安交通大学在校师生个人学习和生活使用，严禁用于任何商业用途。\n2. 使用者应遵守学校各系统的使用规定和信息安全管理条例。\n3. 严禁利用本应用进行恶意请求、数据爬取、接口滥用等行为。违者应自行承担相应法律责任。",
-                            "五、知识产权" to "本应用源代码基于 MIT 协议开源，感谢相关项目的启发。所访问的各业务系统之数据、接口及商标均归西安交通大学及相关权利方所有。",
-                            "六、条款变更" to "开发者保留随时修改本协议的权利。更新后的协议将在新版本发布时生效，继续使用本应用即视为接受修改后的条款。"
-                        )
-                        sections.forEachIndexed { idx, (title, content) ->
-                            if (idx > 0) Spacer(Modifier.height(10.dp))
-                            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.height(4.dp))
-                            Text(content, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, lineHeight = 18.sp)
-                        }
-                        Spacer(Modifier.height(8.dp))
+    Scaffold(
+        topBar = {
+            top.yukonga.miuix.kmp.basic.TopAppBar(
+                title = "用户协议与免责声明",
+                largeTitle = "用户协议与免责声明",
+                scrollBehavior = scrollBehavior
+            )
+        }
+    ) { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .nestedScroll(scrollBehavior.nestedScrollConnection)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp)
+        ) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "请仔细阅读以下条款。继续使用本应用即表示您同意以下全部内容。",
+                style = MiuixTheme.textStyles.body2,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary
+            )
+            Spacer(Modifier.height(16.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    val sections = listOf(
+                        "一、应用性质" to "本应用（「岱宗盒子」）是西安交通大学学生自主开发的非官方校园工具，通过模拟浏览器行为访问学校现有的 Web 服务接口，为学生提供统一便捷的校园信息查询体验。本应用不隶属于、不代表西安交通大学或其任何部门。",
+                        "二、数据来源与使用" to "本应用通过 HTTPS 协议访问学校公开的各业务系统接口获取数据，所有网络请求均在您的设备上发起。您的账号凭据（用户名和密码）仅加密存储在本地设备中，不会上传至任何第三方服务器。本应用不收集、不存储、不传输任何用户的个人信息至开发者或第三方。",
+                        "三、免责声明" to "1. 本应用按「按原样」（AS IS）提供，开发者不对其准确性、完整性、可用性或适用性作任何明示或暗示的保证。\n2. 因使用本应用导致的任何直接或间接损失（包括但不限于数据丢失、账号异常、学业影响等），开发者不承担任何责任。\n3. 若学校系统接口变更导致功能异常，开发者将尽力修复但不保证时效。\n4. 本应用可能因学校政策调整而需要停止服务，届时将提前告知用户。",
+                        "四、合规声明" to "1. 本应用仅供西安交通大学在校师生个人学习和生活使用，严禁用于任何商业用途。\n2. 使用者应遵守学校各系统的使用规定和信息安全管理条例。\n3. 严禁利用本应用进行恶意请求、数据爬取、接口滥用等行为。违者应自行承担相应法律责任。",
+                        "五、知识产权" to "本应用源代码基于 MIT 协议开源，感谢相关项目的启发。所访问的各业务系统之数据、接口及商标均归西安交通大学及相关权利方所有。",
+                        "六、条款变更" to "开发者保留随时修改本协议的权利。更新后的协议将在新版本发布时生效，继续使用本应用即视为接受修改后的条款。"
+                    )
+                    sections.forEachIndexed { idx, (title, body) ->
+                        if (idx > 0) Spacer(Modifier.height(12.dp))
+                        Text(title, style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.primary)
+                        Spacer(Modifier.height(4.dp))
+                        Text(body, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurface, lineHeight = 18.sp)
                     }
                 }
-                if (!canAccept) {
-                    Spacer(Modifier.height(6.dp))
-                    Text("↓  请阅读至底部后同意", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-                }
             }
-        },
-        confirmButton = {
+
+            Spacer(Modifier.height(16.dp))
+
+            if (!canAccept) {
+                Text(
+                    "↓ 请阅读至底部后同意",
+                    style = MiuixTheme.textStyles.footnote1,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
             Button(
                 onClick = onAccept,
                 enabled = canAccept,
-                shape = RoundedCornerShape(12.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Text("我已阅读并同意")
             }
+
+            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         }
-    )
+    }
 }
 
 // ══════════════════════════════════════════
@@ -2794,60 +3295,56 @@ private fun EulaDialog(onAccept: () -> Unit) {
 // ══════════════════════════════════════════
 
 @Composable
-private fun UpdateNoticeDialog(onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Celebration, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+private fun UpdateNoticeDialog(show: MutableState<Boolean>, onDismiss: () -> Unit) {
+    SuperBottomSheet(
+        show = show,
+        title = "岱宗盒子 v${BuildConfig.VERSION_NAME}",
+        onDismissRequest = onDismiss
+    ) {
+        Text("更新说明", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+        Spacer(Modifier.height(8.dp))
+        val items = listOf(
+            "🎉" to "正式版来了！感谢参与内测的山东老乡！",
+            "🔐" to "接入学工系统，可查看详细信息。",
+            "📸" to "新增成绩单下载，绕开限制；成绩查询纳入未评教成绩",
+            "💳" to "图书馆智能座位推荐、地图选座V2。",
+            "🏠" to "UI改版，使用MIUIX开源的HyperOS设计语言。",
+            "👍" to "大量Bug修复与人性化改进！"
+        )
+        items.forEach { (emoji, text) ->
+            Row(Modifier.padding(vertical = 3.dp)) {
+                Text(emoji, style = MiuixTheme.textStyles.body1)
                 Spacer(Modifier.width(8.dp))
-                Column {
-                    Text("岱宗盒子 v${BuildConfig.VERSION_NAME}", fontWeight = FontWeight.Bold)
-                    Text("更新说明", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        },
-        text = {
-            Column {
-                val items = listOf(
-                    "🎉" to "正式版发布！感谢所有测试用户的反馈。",
-                    "🔐" to "全新 NSA 学工系统 OAuth2 认证，支持完整个人信息展示。",
-                    "📸" to "学生证照片 + 详细个人信息卡片，首次加载后自动缓存。",
-                    "💳" to "校园卡页面显示一卡通号。",
-                    "🏠" to "首页焕新：快捷入口 + 服务卡片 + 登录状态聚合。"
-                )
-                items.forEach { (emoji, text) ->
-                    Row(Modifier.padding(vertical = 3.dp)) {
-                        Text(emoji, style = MaterialTheme.typography.bodyMedium)
-                        Spacer(Modifier.width(8.dp))
-                        Text(text, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                    }
-                }
-
-                Spacer(Modifier.height(12.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                Spacer(Modifier.height(12.dp))
-
-                Text("已知问题", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
-                Spacer(Modifier.height(6.dp))
-                val issues = listOf(
-                    "图书馆定时抢座功能待修复",
-                    "通知搜索与推送功能有待优化",
-                    "校园卡登录偶尔失败（教务 Token 获取）"
-                )
-                issues.forEach { issue ->
-                    Row(Modifier.padding(vertical = 2.dp)) {
-                        Text("•", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                        Spacer(Modifier.width(6.dp))
-                        Text(issue, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onDismiss, shape = RoundedCornerShape(12.dp)) {
-                Text("我知道了")
+                Text(text, style = MiuixTheme.textStyles.body2, modifier = Modifier.weight(1f))
             }
         }
-    )
+
+        Spacer(Modifier.height(12.dp))
+        HorizontalDivider(color = MiuixTheme.colorScheme.outline.copy(alpha = 0.3f))
+        Spacer(Modifier.height(12.dp))
+
+        Text("已知问题", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold, color = MiuixTheme.colorScheme.error)
+        Spacer(Modifier.height(6.dp))
+        val issues = listOf(
+            "图书馆定时抢座功能待修复",
+            "通知推送功能有待优化",
+            "校园卡登录偶尔失败（教务 Token 获取）"
+        )
+        issues.forEach { issue ->
+            Row(Modifier.padding(vertical = 2.dp)) {
+                Text("•", style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.outline)
+                Spacer(Modifier.width(6.dp))
+                Text(issue, style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+        Button(
+            onClick = onDismiss,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("知道了")
+        }
+        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+    }
 }

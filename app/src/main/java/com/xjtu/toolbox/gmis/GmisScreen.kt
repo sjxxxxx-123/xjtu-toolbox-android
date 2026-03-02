@@ -1,5 +1,22 @@
 package com.xjtu.toolbox.gmis
 
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.CardDefaults
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
+import top.yukonga.miuix.kmp.basic.rememberTopAppBarState
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.animation.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
@@ -11,7 +28,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -30,7 +46,6 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GmisScreen(login: GmisLogin, onBack: () -> Unit) {
     val api = remember { GmisApi(login) }
@@ -62,10 +77,14 @@ fun GmisScreen(login: GmisLogin, onBack: () -> Unit) {
 
     LaunchedEffect(Unit) { loadData() }
 
+    val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("研究生 · 课表/成绩") },
+                title = "研究生 · 课表/成绩",
+                color = MiuixTheme.colorScheme.surfaceVariant,
+                largeTitle = "研究生 · 课表/成绩",
+                scrollBehavior = scrollBehavior,
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") } },
                 actions = {
                     IconButton(onClick = { loadData() }) {
@@ -75,12 +94,14 @@ fun GmisScreen(login: GmisLogin, onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                SegmentedButton(selected = selectedTab == 0, onClick = { selectedTab = 0 }, shape = SegmentedButtonDefaults.itemShape(0, 2),
-                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 0) { Icon(Icons.Default.CalendarMonth, null, Modifier.size(18.dp)) } }) { Text("课表") }
-                SegmentedButton(selected = selectedTab == 1, onClick = { selectedTab = 1 }, shape = SegmentedButtonDefaults.itemShape(1, 2),
-                    icon = { SegmentedButtonDefaults.Icon(selectedTab == 1) { Icon(Icons.Default.School, null, Modifier.size(18.dp)) } }) { Text("成绩") }
+        Column(Modifier.fillMaxSize().padding(padding).nestedScroll(scrollBehavior.nestedScrollConnection)) {
+            Surface(modifier = Modifier.fillMaxWidth(), color = MiuixTheme.colorScheme.surfaceVariant) {
+                TabRowWithContour(
+                    tabs = listOf("课表", "成绩"),
+                    selectedTabIndex = selectedTab,
+                    onTabSelected = { selectedTab = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
 
             if (isLoading) {
@@ -124,16 +145,16 @@ private fun GmisScoreTab(scores: List<GmisScoreItem>) {
     val weightedSum = scores.sumOf { it.coursePoint * it.gpa }
     val overallGpa = if (totalCredits > 0) weightedSum / totalCredits else 0.0
 
-    LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
+    LazyColumn(Modifier.fillMaxSize().overScrollVertical().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
         item {
-            Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+            top.yukonga.miuix.kmp.basic.Card(Modifier.fillMaxWidth(), colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.primaryContainer)) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("成绩概览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("成绩概览", style = MiuixTheme.textStyles.subtitle, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("%.2f".format(overallGpa), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text("加权GPA", style = MaterialTheme.typography.bodySmall) }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${scores.size}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text("课程数", style = MaterialTheme.typography.bodySmall) }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("%.1f".format(totalCredits), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text("总学分", style = MaterialTheme.typography.bodySmall) }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("%.2f".format(overallGpa), style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold); Text("加权GPA", style = MiuixTheme.textStyles.footnote1) }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("${scores.size}", style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold); Text("课程数", style = MiuixTheme.textStyles.footnote1) }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) { Text("%.1f".format(totalCredits), style = MiuixTheme.textStyles.title4, fontWeight = FontWeight.Bold); Text("总学分", style = MiuixTheme.textStyles.footnote1) }
                     }
                 }
             }
@@ -141,10 +162,10 @@ private fun GmisScoreTab(scores: List<GmisScoreItem>) {
         for (type in typeOrder) {
             val items = grouped[type] ?: continue
             stickyHeader(key = "header_$type") {
-                Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
+                Surface(color = MiuixTheme.colorScheme.surface, modifier = Modifier.fillMaxWidth()) {
                     Text(
                         type,
-                        style = MaterialTheme.typography.titleSmall,
+                        style = MiuixTheme.textStyles.body1,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 0.dp, vertical = 8.dp)
                     )
@@ -152,16 +173,16 @@ private fun GmisScoreTab(scores: List<GmisScoreItem>) {
             }
             items(items) { scoreItem ->
 
-                val scoreColor = when { scoreItem.score >= 90 -> MaterialTheme.colorScheme.primary; scoreItem.score >= 75 -> MaterialTheme.colorScheme.tertiary; scoreItem.score >= 60 -> MaterialTheme.colorScheme.onSurfaceVariant; else -> MaterialTheme.colorScheme.error }
-                Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                val scoreColor = when { scoreItem.score >= 90 -> MiuixTheme.colorScheme.primary; scoreItem.score >= 75 -> MiuixTheme.colorScheme.primaryVariant; scoreItem.score >= 60 -> MiuixTheme.colorScheme.onSurfaceVariantSummary; else -> MiuixTheme.colorScheme.error }
+                top.yukonga.miuix.kmp.basic.Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp) {
                     Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(scoreItem.courseName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(scoreItem.courseName, style = MiuixTheme.textStyles.body1, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.height(4.dp))
-                            Text("学分: ${scoreItem.coursePoint}  GPA: ${scoreItem.gpa}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (scoreItem.examDate.isNotEmpty()) Text(scoreItem.examDate, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("学分: ${scoreItem.coursePoint}  GPA: ${scoreItem.gpa}", style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                            if (scoreItem.examDate.isNotEmpty()) Text(scoreItem.examDate, style = MiuixTheme.textStyles.footnote1, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                         }
-                        Text("%.0f".format(scoreItem.score), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = scoreColor)
+                        Text("%.0f".format(scoreItem.score), style = MiuixTheme.textStyles.headline1, fontWeight = FontWeight.Bold, color = scoreColor)
                     }
                 }
             }

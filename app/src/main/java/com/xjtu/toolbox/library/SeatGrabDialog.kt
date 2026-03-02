@@ -10,17 +10,35 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import top.yukonga.miuix.kmp.utils.overScrollVertical
+import top.yukonga.miuix.kmp.utils.SinkFeedback
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.HorizontalDivider
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Switch
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -34,9 +52,9 @@ import androidx.lifecycle.LifecycleEventObserver
 /**
  * 定时抢座设置对话框
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SeatGrabDialog(
+    show: MutableState<Boolean>,
     currentFavorites: Set<String>,
     selectedArea: String,
     onDismiss: () -> Unit,
@@ -94,46 +112,40 @@ fun SeatGrabDialog(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Schedule, null, Modifier.size(24.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("定时抢座", style = MaterialTheme.typography.headlineSmall)
-            }
-        },
-        text = {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)
-            ) {
+    SuperBottomSheet(
+        show = show,
+        title = "定时抢座",
+        onDismissRequest = { show.value = false; onDismiss() }
+    ) {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().overScrollVertical()
+        ) {
                 // ── 权限检查 ──
                 if (!hasNotificationPermission || !hasExactAlarmPermission) {
                     item {
-                        Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.errorContainer
+                        top.yukonga.miuix.kmp.basic.Card(
+                            colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.errorContainer
                             )
                         ) {
                             Column(Modifier.padding(12.dp)) {
                                 Text(
                                     "⚠ 需要授权",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                    style = MiuixTheme.textStyles.subtitle,
+                                    color = MiuixTheme.colorScheme.onErrorContainer
                                 )
                                 Spacer(Modifier.height(4.dp))
                                 if (!hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    TextButton(onClick = {
+                                    TextButton(text = "授予通知权限", onClick = {
                                         notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                    }) { Text("授予通知权限") }
+                                    })
                                 }
                                 if (!hasExactAlarmPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                    TextButton(onClick = {
+                                    TextButton(text = "授予精确闹钟权限", onClick = {
                                         context.startActivity(
                                             Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
                                         )
-                                    }) { Text("授予精确闹钟权限") }
+                                    })
                                 }
                             }
                         }
@@ -142,17 +154,16 @@ fun SeatGrabDialog(
 
                 // ── 进程保活提醒 ──
                 item {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                    top.yukonga.miuix.kmp.basic.Card(
+                        colors = top.yukonga.miuix.kmp.basic.CardDefaults.defaultColors(color = MiuixTheme.colorScheme.secondaryContainer
                         )
                     ) {
                         Column(Modifier.padding(12.dp)) {
                             Text(
                                 "⚡ 进程保活提醒",
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MiuixTheme.textStyles.subtitle,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = MiuixTheme.colorScheme.onSecondaryContainer
                             )
                             Spacer(Modifier.height(4.dp))
                             Text(
@@ -161,8 +172,8 @@ fun SeatGrabDialog(
                                     "2. 允许后台运行（设置→应用→特殊权限）\n" +
                                     "3. 锁屏后不要手动清理后台\n" +
                                     "4. 部分厂商 ROM 需在安全中心/手机管家中设置自启动",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                                style = MiuixTheme.textStyles.body2,
+                                color = MiuixTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
                                 lineHeight = 18.sp
                             )
                         }
@@ -171,35 +182,35 @@ fun SeatGrabDialog(
 
                 // ── 触发时间 ──
                 item {
-                    Text("触发时间", style = MaterialTheme.typography.titleSmall)
+                    Text("触发时间", style = MiuixTheme.textStyles.subtitle)
                     Spacer(Modifier.height(4.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedTextField(
+                        TextField(
                             value = hourStr,
                             onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) hourStr = it },
                             modifier = Modifier.width(64.dp),
-                            label = { Text("时") },
+                            label = "时",
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                         )
                         Text(":", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        OutlinedTextField(
+                        TextField(
                             value = minuteStr,
                             onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) minuteStr = it },
                             modifier = Modifier.width(64.dp),
-                            label = { Text("分") },
+                            label = "分",
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                         )
                         Text(":", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                        OutlinedTextField(
+                        TextField(
                             value = secondStr,
                             onValueChange = { if (it.length <= 2 && it.all { c -> c.isDigit() }) secondStr = it },
                             modifier = Modifier.width(64.dp),
-                            label = { Text("秒") },
+                            label = "秒",
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                         )
@@ -208,14 +219,14 @@ fun SeatGrabDialog(
 
                 // ── 目标座位列表 ──
                 item {
-                    Text("目标座位（按优先级排列）", style = MaterialTheme.typography.titleSmall)
+                    Text("目标座位（按优先级排列）", style = MiuixTheme.textStyles.subtitle)
                 }
 
                 // 已添加的座位
                 itemsIndexed(config.targetSeats) { index, seat ->
-                    Card(
-                        Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
+                    top.yukonga.miuix.kmp.basic.Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = 8.dp
                     ) {
                         Row(
                             Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -223,16 +234,16 @@ fun SeatGrabDialog(
                         ) {
                             Text(
                                 "${index + 1}.",
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MiuixTheme.textStyles.body1,
                                 fontWeight = FontWeight.Bold
                             )
                             Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(seat.seatId, style = MaterialTheme.typography.bodyMedium)
+                                Text(seat.seatId, style = MiuixTheme.textStyles.body1)
                                 Text(
                                     seat.areaName.ifEmpty { seat.areaCode },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                                 )
                             }
                             // 上移
@@ -282,27 +293,39 @@ fun SeatGrabDialog(
                         val addable = currentFavorites.filter { it !in existingIds }
                         if (addable.isNotEmpty()) {
                             var expanded by remember { mutableStateOf(false) }
-                            OutlinedButton(
-                                onClick = { expanded = !expanded },
+                            Surface(
                                 modifier = Modifier.fillMaxWidth()
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = SinkFeedback()
+                                    ) { expanded = !expanded },
+                                shape = RoundedCornerShape(20.dp),
+                                color = MiuixTheme.colorScheme.surfaceVariant
                             ) {
-                                Icon(Icons.Default.Star, null, Modifier.size(16.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("从收藏添加 (${addable.size})")
+                                Row(
+                                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Star, null, Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("从收藏添加 (${addable.size})")
+                                }
                             }
                             AnimatedVisibility(expanded) {
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    addable.forEach { seatId ->
-                                        val guessedArea = LibraryApi.guessAreaCode(seatId)
-                                        val areaName = guessedArea?.let { code ->
-                                            LibraryApi.AREA_MAP.entries.find { it.value == code }?.key
-                                        } ?: selectedArea
-                                        val areaCode = guessedArea ?: LibraryApi.AREA_MAP[selectedArea] ?: ""
+                                    addable.forEach { favSeatId ->
+                                        val areaCode = LibraryApi.guessAreaCode(favSeatId)
+                                            ?: LibraryApi.AREA_MAP[selectedArea] ?: ""
+                                        val areaName = LibraryApi.AREA_MAP_REVERSE[areaCode]
+                                            ?: selectedArea
 
                                         TextButton(
+                                            text = "★ $favSeatId ($areaName)",
                                             onClick = {
                                                 val newSeat = TargetSeat(
-                                                    seatId = seatId,
+                                                    seatId = favSeatId,
                                                     areaCode = areaCode,
                                                     areaName = areaName,
                                                     priority = config.targetSeats.size
@@ -312,9 +335,7 @@ fun SeatGrabDialog(
                                                 )
                                             },
                                             modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text("★ $seatId ($areaName)")
-                                        }
+                                        )
                                     }
                                 }
                             }
@@ -329,15 +350,15 @@ fun SeatGrabDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        OutlinedTextField(
+                        TextField(
                             value = manualSeatId,
                             onValueChange = { manualSeatId = it },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            label = { Text("座位号") },
-                            textStyle = MaterialTheme.typography.bodySmall
+                            label = "座位号",
+                            textStyle = MiuixTheme.textStyles.body2
                         )
-                        FilledTonalButton(
+                        Button(
                             onClick = {
                                 if (manualSeatId.isNotBlank()) {
                                     val guessedArea = LibraryApi.guessAreaCode(manualSeatId.trim())
@@ -367,7 +388,7 @@ fun SeatGrabDialog(
                 item {
                     HorizontalDivider()
                     Spacer(Modifier.height(4.dp))
-                    Text("高级设置", style = MaterialTheme.typography.titleSmall)
+                    Text("高级设置", style = MiuixTheme.textStyles.subtitle)
                 }
 
                 item {
@@ -376,7 +397,7 @@ fun SeatGrabDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        OutlinedTextField(
+                        TextField(
                             value = config.maxRetries.toString(),
                             onValueChange = {
                                 it.toIntOrNull()?.let { n ->
@@ -384,11 +405,11 @@ fun SeatGrabDialog(
                                 }
                             },
                             modifier = Modifier.width(100.dp),
-                            label = { Text("重试次数") },
+                            label = "重试次数",
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                         )
-                        OutlinedTextField(
+                        TextField(
                             value = (config.retryIntervalMs / 1000).toString(),
                             onValueChange = {
                                 it.toLongOrNull()?.let { sec ->
@@ -396,7 +417,7 @@ fun SeatGrabDialog(
                                 }
                             },
                             modifier = Modifier.width(100.dp),
-                            label = { Text("间隔(秒)") },
+                            label = "间隔(秒)",
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                         )
@@ -408,7 +429,7 @@ fun SeatGrabDialog(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("已有预约时自动换座", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                        Text("已有预约时自动换座", Modifier.weight(1f), style = MiuixTheme.textStyles.body1)
                         Switch(
                             checked = config.autoSwap,
                             onCheckedChange = { config = config.copy(autoSwap = it) }
@@ -416,11 +437,17 @@ fun SeatGrabDialog(
                     }
                 }
 
-                // 底部留白
-                item { Spacer(Modifier.height(8.dp)) }
-            }
-        },
-        confirmButton = {
+            // 底部留白
+            item { Spacer(Modifier.height(8.dp)) }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(
+                onClick = { show.value = false; onDismiss() },
+                modifier = Modifier.weight(1f),
+                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
+            ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
             Button(
                 onClick = {
                     val h = hourStr.toIntOrNull()?.coerceIn(0, 23) ?: 22
@@ -431,17 +458,18 @@ fun SeatGrabDialog(
                         enabled = true,
                         triggerTimeStr = timeStr
                     )
+                    show.value = false
                     onConfirm(finalConfig)
                 },
-                enabled = config.targetSeats.isNotEmpty()
+                enabled = config.targetSeats.isNotEmpty(),
+                modifier = Modifier.weight(1f)
             ) {
                 Icon(Icons.Default.Schedule, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("设定闹钟")
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
         }
-    )
+        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+    }
 }

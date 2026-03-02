@@ -5,12 +5,28 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import com.xjtu.toolbox.ui.components.AppDropdownMenu
+import com.xjtu.toolbox.ui.components.AppDropdownMenuItem
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.basic.Button
+import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextField
+import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.IconButton
+import top.yukonga.miuix.kmp.basic.Surface
+import top.yukonga.miuix.kmp.extra.SuperBottomSheet
+import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.TabRowWithContour
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -23,9 +39,9 @@ import kotlinx.coroutines.launch
  * @param onDelete 删除回调（仅编辑模式）
  * @param onDismiss 关闭回调
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CustomCourseDialog(
+    show: MutableState<Boolean> = mutableStateOf(true),
     existing: CustomCourseEntity? = null,
     termCode: String,
     onSave: (CustomCourseEntity) -> Unit,
@@ -51,120 +67,125 @@ fun CustomCourseDialog(
         )
     }
 
-    var showDeleteConfirm by remember { mutableStateOf(false) }
+    val showDeleteConfirm = remember { mutableStateOf(false) }
     val nameError = courseName.isBlank()
 
-    if (showDeleteConfirm && existing != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("确认删除") },
-            text = { Text("确定要删除「${existing.courseName}」吗？") },
-            confirmButton = {
-                TextButton(onClick = { onDelete?.invoke(existing); onDismiss() },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                    Text("删除")
-                }
-            },
-            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("取消") } }
-        )
+    if (existing != null) {
+        SuperBottomSheet(
+            show = showDeleteConfirm,
+            title = "确认删除",
+            onDismissRequest = { showDeleteConfirm.value = false }
+        ) {
+            Text("确定要删除「${existing.courseName}」吗？")
+            Spacer(Modifier.height(20.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = { showDeleteConfirm.value = false },
+                    modifier = Modifier.weight(1f),
+                    colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
+                ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
+                Button(onClick = { onDelete?.invoke(existing); onDismiss() }, modifier = Modifier.weight(1f)) { Text("删除") }
+            }
+        }
     }
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(if (isEdit) "编辑课程" else "添加课程")
-                if (isEdit) {
-                    IconButton(onClick = { showDeleteConfirm = true }) {
-                        Icon(Icons.Default.Delete, "删除", tint = MaterialTheme.colorScheme.error)
-                    }
+    SuperBottomSheet(
+        show = show,
+        title = if (isEdit) "编辑课程" else "添加课程",
+        onDismissRequest = { show.value = false; onDismiss() }
+    ) {
+        if (isEdit) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                IconButton(onClick = { showDeleteConfirm.value = true }) {
+                    Icon(Icons.Default.Delete, "删除", tint = MiuixTheme.colorScheme.error)
                 }
             }
-        },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+        }
+        Column(
+            modifier = Modifier.overScrollVertical().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
                 // 课程名
-                OutlinedTextField(
+                TextField(
                     value = courseName,
                     onValueChange = { courseName = it },
-                    label = { Text("课程名称 *") },
-                    isError = nameError && courseName.isNotEmpty(),
+                    label = "课程名称 *",
+                    borderColor = if (nameError && courseName.isNotEmpty()) MiuixTheme.colorScheme.error else Color.Unspecified,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 // 教师 + 教室
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
+                    TextField(
                         value = teacher,
                         onValueChange = { teacher = it },
-                        label = { Text("教师") },
+                        label = "教师",
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
-                    OutlinedTextField(
+                    TextField(
                         value = location,
                         onValueChange = { location = it },
-                        label = { Text("教室") },
+                        label = "教室",
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
                 }
 
                 // 星期几
-                Text("星期", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    val days = listOf("一", "二", "三", "四", "五", "六", "日")
-                    days.forEachIndexed { i, label ->
-                        SegmentedButton(
-                            selected = dayOfWeek == i + 1,
-                            onClick = { dayOfWeek = i + 1 },
-                            shape = SegmentedButtonDefaults.itemShape(i, days.size)
-                        ) { Text(label, style = MaterialTheme.typography.labelSmall) }
-                    }
-                }
+                Text("星期", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
+                TabRowWithContour(
+                    tabs = listOf("一", "二", "三", "四", "五", "六", "日"),
+                    selectedTabIndex = dayOfWeek - 1,
+                    onTabSelected = { dayOfWeek = it + 1 },
+                    modifier = Modifier.fillMaxWidth()
+                )
 
                 // 节次
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("第", style = MaterialTheme.typography.bodyMedium)
+                    Text("第", style = MiuixTheme.textStyles.body1)
                     SectionPicker(value = startSection, onValueChange = {
                         startSection = it
                         if (endSection < it) endSection = it
                     }, modifier = Modifier.weight(1f))
-                    Text("→", style = MaterialTheme.typography.bodyMedium)
+                    Text("→", style = MiuixTheme.textStyles.body1)
                     SectionPicker(value = endSection, onValueChange = {
                         endSection = it
                         if (startSection > it) startSection = it
                     }, modifier = Modifier.weight(1f))
-                    Text("节", style = MaterialTheme.typography.bodyMedium)
+                    Text("节", style = MiuixTheme.textStyles.body1)
                 }
 
                 // 周次选择
-                Text("上课周次", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                Text("上课周次", style = MiuixTheme.textStyles.body2, fontWeight = FontWeight.Bold)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TextButton(onClick = { selectedWeeks = (1..20).toSet() }) { Text("全选") }
-                    TextButton(onClick = { selectedWeeks = (1..20).filter { it % 2 == 1 }.toSet() }) { Text("单周") }
-                    TextButton(onClick = { selectedWeeks = (1..20).filter { it % 2 == 0 }.toSet() }) { Text("双周") }
-                    TextButton(onClick = { selectedWeeks = emptySet() }) { Text("清空") }
+                    TextButton(text = "全选", onClick = { selectedWeeks = (1..20).toSet() })
+                    TextButton(text = "单周", onClick = { selectedWeeks = (1..20).filter { it % 2 == 1 }.toSet() })
+                    TextButton(text = "双周", onClick = { selectedWeeks = (1..20).filter { it % 2 == 0 }.toSet() })
+                    TextButton(text = "清空", onClick = { selectedWeeks = emptySet() })
                 }
                 WeekCheckboxGrid(selectedWeeks = selectedWeeks, onToggle = { week ->
                     selectedWeeks = if (week in selectedWeeks) selectedWeeks - week else selectedWeeks + week
                 })
 
                 // 备注
-                OutlinedTextField(
+                TextField(
                     value = note,
                     onValueChange = { note = it },
-                    label = { Text("备注") },
+                    label = "备注",
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-            }
-        },
-        confirmButton = {
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally)) {
+            Button(
+                onClick = { show.value = false; onDismiss() },
+                modifier = Modifier.weight(1f),
+                colors = top.yukonga.miuix.kmp.basic.ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.secondaryContainer)
+            ) { Text("取消", color = MiuixTheme.colorScheme.onSecondaryContainer) }
             Button(
                 onClick = {
                     val weekBitsStr = (1..20).joinToString("") { if (it in selectedWeeks) "1" else "0" }
@@ -183,34 +204,44 @@ fun CustomCourseDialog(
                         note = note.trim()
                     )
                     onSave(entity)
+                    show.value = false
                     onDismiss()
                 },
-                enabled = courseName.isNotBlank() && selectedWeeks.isNotEmpty()
+                enabled = courseName.isNotBlank() && selectedWeeks.isNotEmpty(),
+                modifier = Modifier.weight(1f)
             ) {
                 Text(if (isEdit) "保存" else "添加")
             }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
-    )
+        }
+        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SectionPicker(value: Int, onValueChange: (Int) -> Unit, modifier: Modifier = Modifier) {
     var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
-        OutlinedTextField(
-            value = "$value",
-            onValueChange = {},
-            readOnly = true,
-            singleLine = true,
-            modifier = Modifier.menuAnchor().fillMaxWidth(),
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            textStyle = MaterialTheme.typography.bodyMedium
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+    Box(modifier = modifier) {
+        Surface(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+            shape = RoundedCornerShape(12.dp),
+            color = MiuixTheme.colorScheme.surfaceVariant
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("$value", style = MiuixTheme.textStyles.body1, modifier = Modifier.weight(1f))
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.onSurfaceVariantSummary
+                )
+            }
+        }
+        AppDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             (1..12).forEach { section ->
-                DropdownMenuItem(
+                AppDropdownMenuItem(
                     text = { Text("$section") },
                     onClick = { onValueChange(section); expanded = false }
                 )
@@ -229,13 +260,13 @@ private fun WeekCheckboxGrid(selectedWeeks: Set<Int>, onToggle: (Int) -> Unit) {
                     Surface(
                         modifier = Modifier.weight(1f).heightIn(min = 32.dp).clickable { onToggle(week) },
                         shape = RoundedCornerShape(6.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (isSelected) MiuixTheme.colorScheme.primary
+                        else MiuixTheme.colorScheme.surfaceVariant,
+                        contentColor = if (isSelected) MiuixTheme.colorScheme.onPrimary
+                        else MiuixTheme.colorScheme.onSurfaceVariantSummary
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text("$week", style = MaterialTheme.typography.labelSmall)
+                            Text("$week", style = MiuixTheme.textStyles.footnote1)
                         }
                     }
                 }

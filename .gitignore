@@ -10,3 +10,4 @@
 local.properties
 /.vscode/
 /.github/copilot-instructions.md
+.kotlin/
