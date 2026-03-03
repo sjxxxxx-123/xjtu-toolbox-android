@@ -78,9 +78,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TextField
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import androidx.navigationevent.NavigationEventDispatcher
-import androidx.navigationevent.NavigationEventDispatcherOwner
-import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
+
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -130,16 +128,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             XJTUToolBoxTheme {
-                val navEvtDispatcherOwner = remember {
-                    object : NavigationEventDispatcherOwner {
-                        override val navigationEventDispatcher = NavigationEventDispatcher()
-                    }
-                }
-                CompositionLocalProvider(
-                    LocalNavigationEventDispatcherOwner provides navEvtDispatcherOwner
-                ) {
-                    AppNavigation(onReady = { isAppReady = true })
-                }
+                AppNavigation(onReady = { isAppReady = true })
             }
         }
     }
@@ -3470,6 +3459,12 @@ private val CHANGELOGS: Map<String, VersionChangelog> = mapOf(
         ),
         issues = listOf(
             "通知推送功能有待优化"
+        )
+    ),
+    "2.5.1" to VersionChangelog(
+        items = listOf(
+            "🔙" to "修复所有界面按返回直接回桌面的严重Bug",
+            "🧹" to "移除多余的 NavigationEvent 依赖"
         )
     )
 )

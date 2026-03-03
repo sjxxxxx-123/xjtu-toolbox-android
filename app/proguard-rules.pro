@@ -47,10 +47,6 @@
 -keep class top.yukonga.miuix.** { *; }
 -dontwarn top.yukonga.miuix.**
 
-# ── AndroidX Navigation Event ─────────
--keep class androidx.navigationevent.** { *; }
--dontwarn androidx.navigationevent.**
-
 # ── Haze (高斯模糊) ──────────────────
 -keep class dev.chrisbanes.haze.** { *; }
 -dontwarn dev.chrisbanes.haze.**
