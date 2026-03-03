@@ -43,7 +43,8 @@ enum class LoginType(val label: String, val description: String) {
     CAMPUS_CARD("校园卡", "余额/账单查询"),
     DZPZ("电子打印证", "成绩单下载"),
     VENUE("体育场馆", "运动场地预订"),
-    CLASS("课程平台", "课程回放 · TronClass");
+    CLASS("课程平台", "课程回放 · TronClass"),
+    LMS("思源学堂", "课程 · 作业 · 回放");
 
     /**
      * 创建对应的 Login 实例
@@ -66,6 +67,7 @@ enum class LoginType(val label: String, val description: String) {
         DZPZ -> DzpzLogin(existingClient, visitorId, cachedRsaKey)
         VENUE -> VenueLogin(existingClient, visitorId, cachedRsaKey)
         CLASS -> com.xjtu.toolbox.classreplay.ClassLogin(existingClient, visitorId, cachedRsaKey)
+        LMS -> com.xjtu.toolbox.lms.LmsLogin(existingClient, visitorId, cachedRsaKey)
     }
 }
 

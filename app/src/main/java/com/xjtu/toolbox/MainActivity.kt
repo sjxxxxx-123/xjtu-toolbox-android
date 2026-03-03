@@ -153,6 +153,7 @@ object Routes {
     const val TRANSCRIPT = "transcript"
     const val VENUE = "venue"
     const val CLASS_REPLAY = "class_replay"
+    const val LMS = "lms"
     const val VIDEO_PLAYER = "video_player/{activityId}"
     const val BROWSER = "browser?url={url}"
 
@@ -187,6 +188,7 @@ class AppLoginState {
     var dzpzLogin by mutableStateOf<com.xjtu.toolbox.auth.DzpzLogin?>(null)
     var venueLogin by mutableStateOf<com.xjtu.toolbox.auth.VenueLogin?>(null)
     var classLogin by mutableStateOf<com.xjtu.toolbox.classreplay.ClassLogin?>(null)
+    var lmsLogin by mutableStateOf<com.xjtu.toolbox.lms.LmsLogin?>(null)
 
     // 持久化 CookieJar（由外部传入，整个 App 共享一个实例）
     var persistentCookieJar: com.xjtu.toolbox.util.PersistentCookieJar? = null
@@ -244,7 +246,7 @@ class AppLoginState {
 
     val loginCount: Int
         get() = listOfNotNull(
-            attendanceLogin, jwxtLogin, jwappLogin, ywtbLogin, libraryLogin, campusCardLogin, dzpzLogin, venueLogin, classLogin
+            attendanceLogin, jwxtLogin, jwappLogin, ywtbLogin, libraryLogin, campusCardLogin, dzpzLogin, venueLogin, classLogin, lmsLogin
         ).size
 
     /** 是否为需要校内网络（WebVPN）的服务 */
@@ -309,6 +311,7 @@ class AppLoginState {
             LoginType.DZPZ -> dzpzLogin
             LoginType.VENUE -> venueLogin
             LoginType.CLASS -> classLogin
+            LoginType.LMS -> lmsLogin
         } ?: return null
 
         // Token-based 系统：仅检查有效性，不做任何网络请求
@@ -353,6 +356,7 @@ class AppLoginState {
             is com.xjtu.toolbox.auth.DzpzLogin -> dzpzLogin = login
             is com.xjtu.toolbox.auth.VenueLogin -> venueLogin = login
             is com.xjtu.toolbox.classreplay.ClassLogin -> classLogin = login
+            is com.xjtu.toolbox.lms.LmsLogin -> lmsLogin = login
         }
         // [F1] 立即持久化关键状态（防止进程被杀后丢失）
         credentialStoreRef?.let { store ->
@@ -475,6 +479,7 @@ class AppLoginState {
             LoginType.DZPZ -> dzpzLogin
             LoginType.VENUE -> venueLogin
             LoginType.CLASS -> classLogin
+            LoginType.LMS -> lmsLogin
             else -> null
         }
         if (existingLogin != null) {
@@ -488,6 +493,7 @@ class AppLoginState {
                         is com.xjtu.toolbox.auth.DzpzLogin -> existingLogin.reAuthenticate()
                         is com.xjtu.toolbox.auth.VenueLogin -> existingLogin.reAuthenticate()
                         is com.xjtu.toolbox.classreplay.ClassLogin -> existingLogin.reAuthenticate()
+                        is com.xjtu.toolbox.lms.LmsLogin -> existingLogin.reAuthenticate()
                         else -> false
                     }
                 }
@@ -509,6 +515,7 @@ class AppLoginState {
                 LoginType.DZPZ -> dzpzLogin = null
                 LoginType.VENUE -> venueLogin = null
                 LoginType.CLASS -> classLogin = null
+                LoginType.LMS -> lmsLogin = null
                 else -> {}
             }
         }
@@ -1183,6 +1190,14 @@ fun AppNavigation(onReady: () -> Unit = {}) {
                     onPlayReplay = { login, activityId ->
                         navController.navigate(Routes.videoPlayer(activityId))
                     }
+                )
+            } ?: LaunchedEffect(Unit) { navController.popBackStack() }
+        }
+        composable(Routes.LMS) {
+            loginState.lmsLogin?.let { lmsLogin ->
+                com.xjtu.toolbox.lms.LmsScreen(
+                    login = lmsLogin,
+                    onBack = { navController.popBackStack() }
                 )
             } ?: LaunchedEffect(Unit) { navController.popBackStack() }
         }
@@ -1928,6 +1943,10 @@ private fun HomeTab(
                 { m -> HomeServiceCard(Icons.Default.Place, "场馆预订", "运动场地", svcCyan, m) { onNavigateWithLogin(Routes.VENUE, LoginType.VENUE) } },
                 { m -> HomeServiceCard(Icons.Default.OndemandVideo, "课程回放", "录播回看", svcDeepPurple, m) { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) } },
             )
+            svcRow(
+                { m -> HomeServiceCard(Icons.Default.MenuBook, "思源学堂", "课程 · 作业", svcIndigo, m) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) } },
+                { m -> Spacer(m) }
+            )
         }
 
         Spacer(Modifier.height(100.dp))
@@ -1975,6 +1994,7 @@ private fun AcademicTab(loginState: AppLoginState, onNavigateWithLogin: (String,
         ServiceCard(Icons.Default.Chair, "图书馆座位", "查询 · 预约座位", loginState.libraryLogin != null, iconColor = cOrange) { onNavigateWithLogin(Routes.LIBRARY, LoginType.LIBRARY) }
         ServiceCard(Icons.Default.Place, "场馆预订", "体育场馆 · 运动场地预订", loginState.venueLogin != null, iconColor = cCyan) { onNavigateWithLogin(Routes.VENUE, LoginType.VENUE) }
         ServiceCard(Icons.Default.OndemandVideo, "课程回放", "课程录播 · 倍速回看", loginState.classLogin != null, iconColor = cDeepPurple) { onNavigateWithLogin(Routes.CLASS_REPLAY, LoginType.CLASS) }
+        ServiceCard(Icons.Default.MenuBook, "思源学堂", "课程 · 作业 · 课堂回放", loginState.lmsLogin != null, iconColor = cIndigo) { onNavigateWithLogin(Routes.LMS, LoginType.LMS) }
 
         Spacer(Modifier.height(100.dp))
     }
@@ -3465,6 +3485,15 @@ private val CHANGELOGS: Map<String, VersionChangelog> = mapOf(
         items = listOf(
             "🔙" to "修复所有界面按返回直接回桌面的严重Bug",
             "🧹" to "移除多余的 NavigationEvent 依赖"
+        )
+    ),
+    "2.6.0" to VersionChangelog(
+        items = listOf(
+            "📖" to "新增思源学堂（LMS）功能：课程、作业、课件、课堂回放",
+            "📝" to "作业详情：查看提交记录、评分、教师评语",
+            "🎬" to "课堂回放：支持多机位视频下载",
+            "📎" to "课件附件：一键下载课程资料",
+            "👍" to "UI 优化与多处细节改进"
         )
     )
 )

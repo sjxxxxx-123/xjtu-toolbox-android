@@ -73,7 +73,7 @@ fun ClassScreen(
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "相比思源学堂，class 平台更稳定，但可能遗漏部分回放视频。\n后续版本将深度集成思源学堂，敬请期待。",
+                    "class 平台专注课程录播回看（或许不全，但相对稳定）。如需查看作业、课件等完整功能，请使用教务 Tab 中的「思源学堂」。",
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary
                 )
